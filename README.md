@@ -12,7 +12,10 @@ PHONE CAMERA
     ▼
 ROBOT VISION
     ├── YOLO detection + tracking
-    ├── depth estimation module
+    ├── YOLO11s + ByteTrack
+    ├── metric indoor depth
+    ├── visual odometry
+    ├── temporal local map
     ├── obstacle map
     ├── local path planner
     └── live visualization
@@ -68,8 +71,10 @@ The cloud backend is intentionally optional. Free GPU services are useful for sh
 
 ## Current limitations
 
-- A monocular phone camera does not directly provide reliable metric distance.
-- The current planner is image-space/local rather than full persistent SLAM.
+- Visual odometry from a single camera is scale-ambiguous by itself.
+- Metric depth is used as the distance source for indoor spatial reasoning.
+- The planner remains local rather than full persistent SLAM.
+- Depth can be less reliable on reflective, transparent, textureless or unusual surfaces.
 - Cloud mode requires a deployed compatible remote inference service.
 - Wireless camera latency depends on the phone streaming method and Wi-Fi.
 
@@ -89,7 +94,9 @@ Robot-vision/
 │   ├── camera.py
 │   ├── depth.py
 │   ├── detector.py
-│   └── obstacle_map.py
+│   ├── obstacle_map.py
+│   ├── odometry.py
+│   └── local_map.py
 ├── planning/
 │   └── local_planner.py
 ├── visualization/
@@ -143,3 +150,9 @@ LAN monitor: http://192.168.1.105:8080/
 ```
 
 Open that address on the PC or another device on the same Wi-Fi. The phone camera continues to use the printed HTTPS address on port `8443`.
+
+## Phase 4 spatial perception
+
+Phase 4 adds lightweight monocular visual odometry (ORB + Essential Matrix), metric indoor depth, and a bounded temporal local map. The system deliberately does not claim absolute camera-motion scale from monocular odometry alone. Depth is run periodically at reduced resolution to protect live FPS.
+
+The selected Depth Anything V2 checkpoint is the official Small indoor metric-depth model; its model card describes it as fine-tuned for indoor metric depth estimation and compatible with Transformers. citeturn0search0turn0search4
