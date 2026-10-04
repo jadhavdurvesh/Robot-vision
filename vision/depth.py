@@ -63,5 +63,8 @@ class MonocularDepth:
         # Depth Anything's relative output is normalized here only for visualization.
         # Larger values represent farther/closer depending on model convention; do not
         # interpret this mask as metric distance.
-        near_mask = (depth > np.percentile(depth, 75)).astype(np.uint8) * 255
+        # Depth Anything V2 predicts relative depth: lower normalized values
+        # are nearer, higher values are farther. This is NOT metric distance.
+        near_threshold = float(np.percentile(depth, 18))
+        near_mask = (depth <= near_threshold).astype(np.uint8) * 255
         return DepthResult(depth=depth, near_mask=near_mask)
