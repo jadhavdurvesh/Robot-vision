@@ -35,6 +35,12 @@ def build_obstacle_map(
         if det.class_name not in obstacle_classes:
             continue
 
+        # Treat the bottom of the detection as its ground-contact estimate.
+        # Objects high in the image (e.g. bottles on shelves) should not
+        # become floor obstacles merely because they were detected.
+        if det.y2 < roi_top:
+            continue
+
         x1 = max(0, det.x1 - padding_px)
         y1 = max(roi_top, det.y1 - padding_px)
         x2 = min(width - 1, det.x2 + padding_px)
