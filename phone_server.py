@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -132,6 +133,8 @@ class VisionSession:
         self._depth_frame_count = 0
         self._depth_result: DepthResult | None = None
         self._depth_engine = None
+        self._depth_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="robot-depth")
+        self._depth_future: Future | None = None
         if self.depth_enabled:
             self._depth_engine = MonocularDepth(
                 model_id=depth_cfg.get("model", "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf"),
@@ -159,6 +162,17 @@ class VisionSession:
         )
         self._odo_state = self._odometry.last
         self._local_map_result = None
+
+    def _estimate_depth_async(self, frame: np.ndarray) -> DepthResult:
+        depth_frame = frame
+        scale = min(1.0, self.depth_width / max(1, frame.shape[1]))
+        if scale < 1.0:
+            depth_frame = cv2.resize(
+                frame,
+                (self.depth_width, max(64, int(frame.shape[0] * scale))),
+                interpolation=cv2.INTER_AREA,
+            )
+        return self._depth_engine.estimate(depth_frame)
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         with self.lock:
@@ -193,21 +207,12 @@ class VisionSession:
                 detections = self._last_detections
 
             self._depth_frame_count += 1
-            if (
-                self.depth_enabled
-                and self._depth_engine is not None
-                and (self._depth_result is None or self._depth_frame_count % self.depth_interval == 0)
-            ):
-                depth_frame = frame
-                scale = min(1.0, self.depth_width / max(1, frame.shape[1]))
-                if scale < 1.0:
-                    depth_frame = cv2.resize(
-                        frame,
-                        (self.depth_width, max(64, int(frame.shape[0] * scale))),
-                        interpolation=cv2.INTER_AREA,
-                    )
+
+            # Depth is intentionally asynchronous. A cold model load or slow
+            # depth inference must never freeze the live object/path pipeline.
+            if self._depth_future is not None and self._depth_future.done():
                 try:
-                    depth_small = self._depth_engine.estimate(depth_frame)
+                    depth_small = self._depth_future.result()
                     depth_map = cv2.resize(
                         depth_small.depth,
                         (frame.shape[1], frame.shape[0]),
@@ -224,13 +229,26 @@ class VisionSession:
                         metric=depth_small.metric,
                     )
                 except Exception as exc:
-                    # Depth must never be allowed to kill the live camera.
-                    # Keep object/path navigation alive and retry is disabled
-                    # for this session until the operator restarts it.
                     print(f"[DEPTH] disabled after error: {exc}", flush=True)
                     traceback.print_exc()
                     self.depth_enabled = False
                     self._depth_engine = None
+                finally:
+                    self._depth_future = None
+
+            if (
+                self.depth_enabled
+                and self._depth_engine is not None
+                and self._depth_future is None
+                and (self._depth_result is None or self._depth_frame_count % self.depth_interval == 0)
+            ):
+                try:
+                    self._depth_future = self._depth_executor.submit(
+                        self._estimate_depth_async, frame.copy()
+                    )
+                except Exception as exc:
+                    print(f"[DEPTH] could not schedule inference: {exc}", flush=True)
+                    self.depth_enabled = False
 
             self._odo_frame_count += 1
             if self.odo_enabled and self._odo_frame_count % self.odo_interval == 0:
