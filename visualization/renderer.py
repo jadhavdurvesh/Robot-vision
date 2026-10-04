@@ -161,7 +161,7 @@ def draw_scene(
         _text(output, f"COV {local_map.coverage:.1%}", (mx + 6, my + 35), 0.36, (190, 220, 235), 1)
         _text(
             output,
-            f"OBS {local_map.obstacle_count}  TRJ {local_map.trajectory_length:.2f} {"m" if local_map.metric_scale else "rel"}",
+            f"OBS {local_map.obstacle_count}  TRJ {local_map.trajectory_length:.2f} {'m' if local_map.metric_scale else 'rel'}",
             (mx + 6, my + 183),
             0.31,
             (185, 205, 220),
