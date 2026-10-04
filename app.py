@@ -52,6 +52,8 @@ def main(argv=None) -> int:
         confidence=detector_cfg["confidence"],
         iou=detector_cfg["iou"],
         device=detector_cfg["device"],
+        imgsz=int(detector_cfg.get("imgsz", 512)),
+        half=bool(detector_cfg.get("half", True)),
     )
     planner = LocalPlanner(
         samples=planner_cfg["lateral_samples"],
@@ -100,6 +102,7 @@ def main(argv=None) -> int:
             if key == ord("q"):
                 break
             if key == ord("r"):
+                planner.reset()
                 print("Planner state reset.")
 
     finally:
