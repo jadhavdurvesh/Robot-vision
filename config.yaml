@@ -9,6 +9,8 @@ detection:
   confidence: 0.35
   iou: 0.45
   device: auto
+  imgsz: 512
+  half: true
 
 obstacle_map:
   roi_top_ratio: 0.38
