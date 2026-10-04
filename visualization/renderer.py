@@ -158,6 +158,14 @@ def draw_scene(
         output[my:my + 190, mx:mx + 190] = map_img
         _text(output, "LOCAL MAP", (mx + 6, my + 15), 0.40, (255, 255, 255), 1)
         _text(output, f"COV {local_map.coverage:.1%}", (mx + 6, my + 35), 0.36, (190, 220, 235), 1)
+        _text(
+            output,
+            f"OBS {local_map.obstacle_count}  TRJ {local_map.trajectory_length:.1f}",
+            (mx + 6, my + 183),
+            0.31,
+            (185, 205, 220),
+            1,
+        )
 
     # --- Path information card ---
     card_w, card_h = 225, 74
