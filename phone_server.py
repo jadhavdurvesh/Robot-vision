@@ -209,7 +209,7 @@ class VisionSession:
             self.frame_count += 1
             rendered = draw_scene(
                 frame, detections, obstacle_map, path,
-                self.fps, self.last_process_ms
+                self.fps, self.last_process_ms, self._depth_result
             )
             ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
