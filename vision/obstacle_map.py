@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from vision.detector import Detection
+from vision.depth import DepthResult
 
 
 @dataclass
@@ -20,6 +21,7 @@ def build_obstacle_map(
     obstacle_classes: set[str],
     roi_top_ratio: float,
     padding_px: int,
+    depth_result: DepthResult | None = None,
 ) -> ObstacleMap:
     height, width = frame_shape[:2]
 
@@ -41,10 +43,26 @@ def build_obstacle_map(
         if det.y2 < roi_top:
             continue
 
-        x1 = max(0, det.x1 - padding_px)
-        y1 = max(roi_top, det.y1 - padding_px)
-        x2 = min(width - 1, det.x2 + padding_px)
-        y2 = min(height - 1, det.y2 + padding_px)
+        extra_padding = 0
+        if depth_result is not None:
+            # Use relative depth only to make genuinely near detected objects
+            # slightly safer. Never turn the raw depth mask into an obstacle.
+            crop = depth_result.depth[
+                max(0, det.y1):min(height, det.y2 + 1),
+                max(0, det.x1):min(width, det.x2 + 1),
+            ]
+            if crop.size:
+                near_score = float(np.percentile(crop, 20))
+                if near_score < 0.22:
+                    extra_padding = int(padding_px * 1.5)
+                elif near_score < 0.35:
+                    extra_padding = int(padding_px * 0.75)
+
+        total_padding = padding_px + extra_padding
+        x1 = max(0, det.x1 - total_padding)
+        y1 = max(roi_top, det.y1 - total_padding)
+        x2 = min(width - 1, det.x2 + total_padding)
+        y2 = min(height - 1, det.y2 + total_padding)
 
         if x2 > x1 and y2 > y1:
             cv2.rectangle(obstacle_mask, (x1, y1), (x2, y2), 255, -1)
