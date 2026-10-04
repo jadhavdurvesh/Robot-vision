@@ -253,7 +253,11 @@ class VisionSession:
 
             self._odo_frame_count += 1
             if self.odo_enabled and self._odo_frame_count % self.odo_interval == 0:
-                self._odo_state = self._odometry.update(frame)
+                depth_for_odo = None if self._depth_result is None else self._depth_result.depth
+                self._odo_state = self._odometry.update(
+                    frame, depth=depth_for_odo,
+                    metric_depth=bool(self._depth_result and self._depth_result.metric),
+                )
 
             obstacle_map = build_obstacle_map(
                 frame.shape, detections, self.obstacle_classes,
