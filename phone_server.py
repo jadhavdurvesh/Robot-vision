@@ -8,6 +8,7 @@ import ssl
 import tempfile
 import threading
 import time
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -205,18 +206,31 @@ class VisionSession:
                         (self.depth_width, max(64, int(frame.shape[0] * scale))),
                         interpolation=cv2.INTER_AREA,
                     )
-                depth_small = self._depth_engine.estimate(depth_frame)
-                depth_map = cv2.resize(
-                    depth_small.depth,
-                    (frame.shape[1], frame.shape[0]),
-                    interpolation=cv2.INTER_LINEAR,
-                )
-                near_map = cv2.resize(
-                    depth_small.near_mask,
-                    (frame.shape[1], frame.shape[0]),
-                    interpolation=cv2.INTER_NEAREST,
-                )
-                self._depth_result = DepthResult(depth=depth_map, near_mask=near_map)
+                try:
+                    depth_small = self._depth_engine.estimate(depth_frame)
+                    depth_map = cv2.resize(
+                        depth_small.depth,
+                        (frame.shape[1], frame.shape[0]),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+                    near_map = cv2.resize(
+                        depth_small.near_mask,
+                        (frame.shape[1], frame.shape[0]),
+                        interpolation=cv2.INTER_NEAREST,
+                    )
+                    self._depth_result = DepthResult(
+                        depth=depth_map,
+                        near_mask=near_map,
+                        metric=depth_small.metric,
+                    )
+                except Exception as exc:
+                    # Depth must never be allowed to kill the live camera.
+                    # Keep object/path navigation alive and retry is disabled
+                    # for this session until the operator restarts it.
+                    print(f"[DEPTH] disabled after error: {exc}", flush=True)
+                    traceback.print_exc()
+                    self.depth_enabled = False
+                    self._depth_engine = None
 
             self._odo_frame_count += 1
             if self.odo_enabled and self._odo_frame_count % self.odo_interval == 0:
@@ -348,12 +362,27 @@ async def websocket(request):
     async def inference_worker():
         while not ws.closed:
             data = await queue.get()
-            arr = np.frombuffer(data, dtype=np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if frame is None:
-                continue
-            rendered = await asyncio.to_thread(session.process, frame)
-            display.show(rendered)
+            try:
+                arr = np.frombuffer(data, dtype=np.uint8)
+                frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if frame is None:
+                    continue
+
+                rendered = await asyncio.to_thread(session.process, frame)
+                display.show(rendered)
+
+                if session.frame_count <= 3 or session.frame_count % 30 == 0:
+                    print(
+                        f"[VISION] processed={session.frame_count} "
+                        f"received={session.received_count} "
+                        f"fps={session.fps:.1f} "
+                        f"latency={session.last_process_ms:.0f}ms",
+                        flush=True,
+                    )
+            except Exception as exc:
+                # Never let one bad model/frame kill the websocket worker.
+                print(f"[VISION] frame processing error: {exc}", flush=True)
+                traceback.print_exc()
 
     worker = asyncio.create_task(inference_worker())
     try:
