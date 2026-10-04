@@ -204,12 +204,42 @@ def main():
     app.router.add_get("/stream", mjpeg_stream)
     app.router.add_get("/view-health", view_health)
 
+    # Separate browser monitor for GitHub Codespaces / remote development.
+    monitor = web.Application()
+    monitor["session"] = app["session"]
+    monitor.router.add_get("/", view_page)
+    monitor.router.add_get("/stream", mjpeg_stream)
+    monitor.router.add_get("/health", view_health)
+
+    async def start_monitor():
+        runner = web.AppRunner(monitor)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", 8080)
+        await site.start()
+        return runner
+
+    async def run_servers():
+        await start_monitor()
+        await web.TCPSite(
+            web.AppRunner(app), "0.0.0.0", args.port
+        ).start()
+
     url = f"https://{ip}:{args.port}/"
     print("\nRobot Vision wireless session")
     print(f"Phone URL: {url}")
     print("Open the URL on the phone, accept the local certificate warning, then tap START CAMERA.")
     print("Press Ctrl+C to stop the session.\n")
-    web.run_app(app, host="0.0.0.0", port=args.port, ssl_context=context)
+    print("Codespaces monitor: http://localhost:8080/ (forward port 8080 in the Ports tab)")
+
+    async def main_async():
+        await start_monitor()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", args.port, ssl_context=context)
+        await site.start()
+        await asyncio.Event().wait()
+
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
