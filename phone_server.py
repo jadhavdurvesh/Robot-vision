@@ -188,6 +188,11 @@ async def websocket(request):
             if frame is None:
                 continue
             rendered = await asyncio.to_thread(session.process, frame)
+            cv2.imshow("Robot Vision - Phone Camera", rendered)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                await ws.close()
+                break
             ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if ok:
                 await ws.send_bytes(encoded.tobytes())
@@ -242,7 +247,7 @@ def main():
     print(f"Phone URL: {url}")
     print("Open the URL on the phone, accept the local certificate warning, then tap START CAMERA.")
     print("Press Ctrl+C to stop the session.\n")
-    print(f"LAN monitor: http://{ip}:8080/")
+    print(f"LAN monitor (Codespaces/remote): http://{ip}:8080/")
     print("Codespaces monitor: http://localhost:8080/ (only when running inside Codespaces)")
 
     async def main_async():
