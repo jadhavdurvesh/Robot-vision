@@ -238,6 +238,7 @@ async def websocket(request):
     ws = web.WebSocketResponse(max_msg_size=8 * 1024 * 1024)
     await ws.prepare(request)
     session = request.app["session"]
+    print(f"[PHONE] connected: {request.remote}", flush=True)
     display = request.app["display"]
     queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
 
@@ -272,6 +273,7 @@ async def websocket(request):
             await worker
         except asyncio.CancelledError:
             pass
+    print("[PHONE] disconnected", flush=True)
     return ws
 
 
