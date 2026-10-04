@@ -108,6 +108,7 @@ class VisionSession:
         self.lock = threading.Lock()
         self.latest_jpeg = None
         self.frame_count = 0
+        self.received_count = 0
         self.last_process_ms = 0.0
         self.fps = 0.0
         self._last_process_time = None
@@ -174,7 +175,7 @@ async function update(){
  try{
   const r=await fetch("/frame?ts="+Date.now(),{cache:"no-store"});
   const data=await r.json();
-  frames.textContent="Frames processed: "+data.frames_processed;
+  frames.textContent="Frames received: "+data.frames_received+" • processed: "+data.frames_processed;
   if(data.available){
    img.src="/frame.jpg?ts="+Date.now();
    status.textContent="● LIVE";
@@ -205,6 +206,7 @@ async def frame_status(request):
     return web.json_response({
         "available": session.latest_jpeg is not None,
         "frames_processed": session.frame_count,
+        "frames_received": session.received_count,
     })
 
 
@@ -234,7 +236,13 @@ async def websocket(request):
     worker = asyncio.create_task(inference_worker())
     try:
         async for message in ws:
-            if message.type == web.WSMsgType.BINARY:
+            if message.type == web.WSMsgType.TEXT:
+                print(f"[PHONE] message: {message.data}", flush=True)
+                await ws.send_str("ACK")
+            elif message.type == web.WSMsgType.BINARY:
+                session.received_count += 1
+                if session.received_count <= 5 or session.received_count % 20 == 0:
+                    print(f"[PHONE] frame received: {session.received_count} ({len(message.data)} bytes)", flush=True)
                 if queue.full():
                     try:
                         queue.get_nowait()
