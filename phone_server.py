@@ -289,6 +289,7 @@ class VisionSession:
                     self.roi_top,
                     metric_depth=bool(self._depth_result and self._depth_result.metric),
                     path=path,
+                    metric_scale=bool(self._odo_state.scale_known),
                 )
                 self._pending_map_update = False
             elapsed = time.perf_counter() - started
