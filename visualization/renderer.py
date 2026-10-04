@@ -91,6 +91,7 @@ def draw_scene(
     _text(output, f"OBJ {len(detections)}", (350, 22), 0.48, (230, 235, 240), 1)
     _text(output, f"{fps:.1f} FPS", (420, 22), 0.48, (180, 220, 255), 1)
     _text(output, f"{inference_ms:.0f}ms", (500, 22), 0.48, (180, 220, 255), 1)
+    _text(output, f"CLR {path.clearance:.0%}", (575, 22), 0.44, (150, 235, 190), 1)
 
     # --- Compact object list ---
     if detections:
