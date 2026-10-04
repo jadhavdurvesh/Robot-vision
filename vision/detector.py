@@ -57,6 +57,8 @@ class ObjectDetector:
             imgsz=self.imgsz,
             half=self.use_half,
             device=self.device,
+            tracker="bytetrack.yaml",
+            max_det=100,
             verbose=False,
         )
         detections: list[Detection] = []
