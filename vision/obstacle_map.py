@@ -52,11 +52,18 @@ def build_obstacle_map(
                 max(0, det.x1):min(width, det.x2 + 1),
             ]
             if crop.size:
-                near_score = float(np.percentile(crop, 80))
-                if near_score > 0.78:
-                    extra_padding = int(padding_px * 1.5)
-                elif near_score > 0.62:
-                    extra_padding = int(padding_px * 0.75)
+                near_score = float(np.percentile(crop, 20))
+                if depth_result.metric:
+                    if near_score < 1.0:
+                        extra_padding = int(padding_px * 1.5)
+                    elif near_score < 1.8:
+                        extra_padding = int(padding_px * 0.75)
+                else:
+                    near_score = float(np.percentile(crop, 80))
+                    if near_score > 0.78:
+                        extra_padding = int(padding_px * 1.5)
+                    elif near_score > 0.62:
+                        extra_padding = int(padding_px * 0.75)
 
         total_padding = padding_px + extra_padding
         x1 = max(0, det.x1 - total_padding)
