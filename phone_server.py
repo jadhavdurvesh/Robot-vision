@@ -72,44 +72,23 @@ def make_certificate(ip: str) -> tuple[str, str]:
 
 
 class OpenCVDisplay:
-    """Dedicated UI thread so cv2.imshow never blocks networking or inference."""
+    """Thread-safe frame buffer; OpenCV GUI itself stays on the Windows main thread."""
 
     def __init__(self):
         self.lock = threading.Lock()
         self.frame = None
         self.running = True
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
 
     def show(self, frame: np.ndarray) -> None:
         with self.lock:
             self.frame = frame.copy()
 
-    def _run(self) -> None:
-        cv2.namedWindow("Robot Vision - Phone Camera", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Robot Vision - Phone Camera", 1280, 720)
-        while self.running:
-            with self.lock:
-                frame = None if self.frame is None else self.frame.copy()
-            if frame is not None:
-                h, w = frame.shape[:2]
-                scale = min(1280 / w, 720 / h)
-                rw, rh = max(1, int(w * scale)), max(1, int(h * scale))
-                resized = cv2.resize(frame, (rw, rh), interpolation=cv2.INTER_AREA)
-                display = np.zeros((720, 1280, 3), dtype=np.uint8)
-                x = (1280 - rw) // 2
-                y = (720 - rh) // 2
-                display[y:y + rh, x:x + rw] = resized
-                cv2.imshow("Robot Vision - Phone Camera", display)
-            key = cv2.waitKey(15) & 0xFF
-            if key == ord("q"):
-                self.running = False
-                break
-        cv2.destroyAllWindows()
+    def latest(self):
+        with self.lock:
+            return None if self.frame is None else self.frame.copy()
 
     def close(self) -> None:
         self.running = False
-        self.thread.join(timeout=2.0)
 
 
 class VisionSession:
@@ -277,12 +256,7 @@ async def websocket(request):
     return ws
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--port", type=int, default=8443)
-    args = parser.parse_args()
-
+def run_server(args, display):
     ip = local_ip()
     cert, key = make_certificate(ip)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -290,13 +264,12 @@ def main():
 
     app = web.Application(client_max_size=8 * 1024 * 1024)
     app["session"] = VisionSession(load_config(args.config))
-    app["display"] = OpenCVDisplay()
+    app["display"] = display
     app.router.add_get("/", index)
     app.router.add_get("/health", health)
     app.router.add_get("/ws", websocket)
     app.router.add_get("/view", view_page)
 
-    # Separate browser monitor for GitHub Codespaces / remote development.
     monitor = web.Application()
     monitor["session"] = app["session"]
     monitor.router.add_get("/", view_page)
@@ -304,37 +277,77 @@ def main():
     monitor.router.add_get("/frame", frame_status)
     monitor.router.add_get("/health", view_health)
 
-    async def start_monitor():
-        runner = web.AppRunner(monitor)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", 8080)
-        await site.start()
-        return runner
-
-    async def run_servers():
-        await start_monitor()
-        await web.TCPSite(
-            web.AppRunner(app), "0.0.0.0", args.port
-        ).start()
-
-    url = f"https://{ip}:{args.port}/"
-    print("\nRobot Vision wireless session")
-    print(f"Phone URL: {url}")
-    print("Open the URL on the phone, accept the local certificate warning, then tap START CAMERA.")
-    print("Press Q in the OpenCV window or Ctrl+C in the terminal to stop.\n")
-    print(f"LAN monitor (Codespaces/remote): http://{ip}:8080/")
-    print("Vision display: OpenCV window on this PC")
-    print("Codespaces monitor: http://localhost:8080/ (only when running inside Codespaces)")
-
     async def main_async():
-        await start_monitor()
+        monitor_runner = web.AppRunner(monitor)
+        await monitor_runner.setup()
+        await web.TCPSite(monitor_runner, "0.0.0.0", 8080).start()
+
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", args.port, ssl_context=context)
-        await site.start()
+        await web.TCPSite(
+            runner, "0.0.0.0", args.port, ssl_context=context
+        ).start()
+
+        print("\nRobot Vision wireless session")
+        print(f"Phone URL: https://{ip}:{args.port}/")
+        print("Open the URL on the phone, accept the certificate warning, then tap START CAMERA.")
+        print(f"LAN monitor: http://{ip}:8080/")
+        print("OpenCV display: this Windows window")
+        print("Press Q in the OpenCV window to stop.\n")
+
         await asyncio.Event().wait()
 
     asyncio.run(main_async())
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--port", type=int, default=8443)
+    args = parser.parse_args()
+
+    # IMPORTANT: Windows OpenCV GUI must run on the main thread.
+    display = OpenCVDisplay()
+    server_thread = threading.Thread(
+        target=run_server, args=(args, display), daemon=True
+    )
+    server_thread.start()
+
+    window = "Robot Vision - Phone Camera"
+    cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window, 1280, 720)
+
+    try:
+        while display.running:
+            frame = display.latest()
+            if frame is not None:
+                h, w = frame.shape[:2]
+
+                # Letterbox: preserve the COMPLETE phone frame.
+                scale = min(1280 / w, 720 / h)
+                rw = max(1, int(w * scale))
+                rh = max(1, int(h * scale))
+                resized = cv2.resize(
+                    frame, (rw, rh), interpolation=cv2.INTER_AREA
+                )
+
+                display_frame = np.zeros(
+                    (720, 1280, 3), dtype=np.uint8
+                )
+                x = (1280 - rw) // 2
+                y = (720 - rh) // 2
+                display_frame[y:y + rh, x:x + rw] = resized
+
+                cv2.imshow(window, display_frame)
+
+            key = cv2.waitKey(10) & 0xFF
+            if key == ord("q") or key == 27:
+                display.close()
+                break
+    finally:
+        cv2.destroyAllWindows()
+
+
 
 
 if __name__ == "__main__":
