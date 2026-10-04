@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import time
 
 import cv2
 import yaml
 
+from hybrid.backend import Backend, select_backend
 from planning.local_planner import LocalPlanner
 from vision.detector import ObjectDetector
 from vision.obstacle_map import build_obstacle_map
@@ -24,16 +26,26 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(fh)
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Robot Vision live detection and path-planning prototype")
     parser.add_argument("--source", default="0", help="Camera index or mobile-camera stream URL")
     parser.add_argument("--config", default="config.yaml", help="Configuration file")
-    args = parser.parse_args()
+    parser.add_argument("--backend", choices=["auto", "local", "cloud"], default=os.getenv("ROBOT_VISION_SELECTED_BACKEND", "auto"))
+    parser.add_argument("--cloud-url", default=os.getenv("ROBOT_VISION_CLOUD_URL", ""))
+    args = parser.parse_args(argv)
 
     cfg = load_config(args.config)
     detector_cfg = cfg["detection"]
     obstacle_cfg = cfg["obstacle_map"]
     planner_cfg = cfg["planner"]
+
+    backend = select_backend(Backend(args.backend), args.cloud_url)
+    print(f"Robot Vision backend: {backend.selected} ({backend.reason})")
+
+    if backend.selected == "cloud":
+        raise NotImplementedError(
+            "Cloud backend selected, but no compatible remote inference service is deployed yet."
+        )
 
     detector = ObjectDetector(
         model_path=detector_cfg["model"],
