@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Robot Vision Phone Camera</title>
+  <style>
+    body { margin: 0; background: #111; color: #eee; font-family: sans-serif; text-align: center; }
+    video { width: min(100vw, 960px); max-height: 80vh; object-fit: contain; background: #000; }
+    button { margin: 12px; padding: 12px 18px; font-size: 16px; }
+    p { opacity: .8; }
+  </style>
+</head>
+<body>
+  <h2>Robot Vision — Phone Camera</h2>
+  <video id="camera" autoplay playsinline muted></video>
+  <br>
+  <button id="start">Start Camera</button>
+  <p>Use this page for the browser/WebRTC capture prototype. Camera access requires HTTPS or localhost.</p>
+  <script>
+    const video = document.getElementById("camera");
+    document.getElementById("start").onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      video.srcObject = stream;
+    };
+  </script>
+</body>
+</html>
