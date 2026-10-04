@@ -39,6 +39,11 @@ class VisualOdometry:
         self.min_matches = min_matches
         self.min_inliers = min_inliers
         self.focal_ratio = focal_ratio
+        self.fx = None
+        self.fy = None
+        self.cx_ratio = 0.5
+        self.cy_ratio = 0.5
+        self.prev_depth = None
 
         self.orb = cv2.ORB_create(
             nfeatures=max_features,
@@ -68,6 +73,7 @@ class VisualOdometry:
         self.prev_gray = None
         self.prev_kp = None
         self.prev_desc = None
+        self.prev_depth = None
         self.position[:] = 0
         self.rotation[:] = np.eye(3)
         self.last = OdometryState(
@@ -81,7 +87,7 @@ class VisualOdometry:
             position=self.position.copy(),
         )
 
-    def update(self, frame: np.ndarray) -> OdometryState:
+    def update(self, frame: np.ndarray, depth: np.ndarray | None = None, metric_depth: bool = False) -> OdometryState:
         h, w = frame.shape[:2]
         scale = min(1.0, self.width / max(1, w))
         if scale < 1:
@@ -149,7 +155,9 @@ class VisualOdometry:
         pts_curr = np.float32([kp[m.trainIdx].pt for m in good])
 
         focal = max(gray.shape) * self.focal_ratio
-        cx, cy = gray.shape[1] * 0.5, gray.shape[0] * 0.5
+        fx = self.fx if self.fx is not None else focal
+        fy = self.fy if self.fy is not None else focal
+        cx, cy = gray.shape[1] * self.cx_ratio, gray.shape[0] * self.cy_ratio
         K = np.array(
             [[focal, 0, cx], [0, focal, cy], [0, 0, 1]],
             dtype=np.float64,
@@ -175,25 +183,75 @@ class VisualOdometry:
         confidence = float(inlier_count) / max(1, len(good))
         tracking = inlier_count >= self.min_inliers and confidence >= 0.30
 
+        # Depth-assisted pose when metric depth is available. PnP converts
+        # matched pixels into 3D points, giving translation in depth units.
+        metric_pose = None
+        metric_inliers = 0
+        if metric_depth and depth is not None and self.prev_depth is not None:
+            try:
+                prev_d = self.prev_depth
+                curr_d = depth
+                if prev_d.shape != gray.shape:
+                    prev_d = cv2.resize(prev_d, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+                if curr_d.shape != gray.shape:
+                    curr_d = cv2.resize(curr_d, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+                obj, img = [], []
+                for m in good:
+                    u, v = self.prev_kp[m.queryIdx].pt
+                    cu, cv = kp[m.trainIdx].pt
+                    iu, iv = int(round(u)), int(round(v))
+                    z = float(prev_d[np.clip(iv, 0, prev_d.shape[0]-1), np.clip(iu, 0, prev_d.shape[1]-1)])
+                    if np.isfinite(z) and 0.15 < z < 8.0:
+                        obj.append(((u-cx)*z/fx, (v-cy)*z/fy, z))
+                        img.append((cu, cv))
+                if len(obj) >= 12:
+                    ok, rvec, tvec, idx = cv2.solvePnPRansac(
+                        np.asarray(obj, dtype=np.float32), np.asarray(img, dtype=np.float32),
+                        K, None, flags=cv2.SOLVEPNP_EPNP, reprojectionError=3.0,
+                        confidence=0.995, iterationsCount=80)
+                    if ok and idx is not None and len(idx) >= self.min_inliers:
+                        Rm, _ = cv2.Rodrigues(rvec)
+                        metric_pose = (Rm, tvec.reshape(3).astype(np.float64))
+                        metric_inliers = int(len(idx))
+                        if metric_inliers / max(1, len(obj)) >= 0.30:
+                            tracking = True
+                            confidence = max(confidence, metric_inliers / max(1, len(obj)))
+            except (cv2.error, ValueError, FloatingPointError):
+                metric_pose = None
+
         translation = t.reshape(3).astype(np.float64)
         rotation_deg = float(
             np.degrees(np.arccos(np.clip((np.trace(R) - 1.0) * 0.5, -1.0, 1.0)))
         )
 
-        if tracking:
-            # recoverPose gives X_current = R X_previous + t.
-            # Camera center in the previous camera frame is -R.T @ t.
+        scale_known = False
+        if metric_pose is not None:
+            Rm, tm = metric_pose
+            step = -Rm.T @ tm
+            step_norm = float(np.linalg.norm(step))
+            if np.isfinite(step_norm) and 0.002 < step_norm < 2.0:
+                self.position += self.rotation @ step
+                self.rotation = self.rotation @ Rm.T
+                translation = tm
+                rotation_deg = float(np.degrees(np.arccos(np.clip((np.trace(Rm)-1.0)*0.5, -1.0, 1.0))))
+                scale_known = True
+        elif tracking:
             step = (-R.T @ translation)
             step_norm = np.linalg.norm(step)
             if step_norm > 1e-8:
                 step /= step_norm
-
-            # Keep translation bounded because monocular scale is unknown.
             step *= min(1.0, 0.15 + 0.85 * confidence)
             self.position += self.rotation @ step
             self.rotation = self.rotation @ R.T
 
         self.prev_gray, self.prev_kp, self.prev_desc = gray, kp, desc
+        if depth is not None:
+            d = depth
+            if d.shape != gray.shape:
+                d = cv2.resize(d, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+            self.prev_depth = d.astype(np.float32, copy=True)
+        else:
+            self.prev_depth = None
         self.last = OdometryState(
             initialized=True,
             tracking=tracking,
@@ -203,6 +261,6 @@ class VisualOdometry:
             translation=translation,
             rotation_deg=rotation_deg,
             position=self.position.copy(),
-            scale_known=False,
+            scale_known=scale_known,
         )
         return self.last
