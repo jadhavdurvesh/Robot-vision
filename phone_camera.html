@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Robot Vision Camera</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#070b10;color:#eef4f8;font-family:system-ui,sans-serif;display:flex;justify-content:center}main{width:min(100%,760px);padding:20px}h1{margin:0 0 6px;font-size:25px}p{color:#9eabb5}video{width:100%;border-radius:16px;background:#000;transform:scaleX(-1)}button{width:100%;border:0;border-radius:12px;padding:15px;margin-top:12px;font-weight:700;font-size:17px}#start{background:#43e07b;color:#041008}#stop{background:#252d35;color:#fff}#status{margin-top:14px;padding:12px;border-radius:10px;background:#121920}</style></head><body><main><h1>Robot Vision</h1><p>Wireless phone camera session • Hold the phone in landscape for the best navigation view.</p><video id="camera" autoplay playsinline muted></video><button id="start">START CAMERA</button><button id="stop" disabled>STOP SESSION</button><div id="status">Disconnected</div></main><script>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Robot Vision Camera</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#070b10;color:#eef4f8;font-family:system-ui,sans-serif;display:flex;justify-content:center}main{width:min(100%,760px);padding:20px}h1{margin:0 0 6px;font-size:25px}p{color:#9eabb5}video{width:100%;max-height:78vh;border-radius:16px;background:#000;object-fit:contain;transform:none}button{width:100%;border:0;border-radius:12px;padding:15px;margin-top:12px;font-weight:700;font-size:17px}#start{background:#43e07b;color:#041008}#stop{background:#252d35;color:#fff}#status{margin-top:14px;padding:12px;border-radius:10px;background:#121920}</style></head><body><main><h1>Robot Vision</h1><p>Wireless phone camera session • The complete camera view is preserved. Landscape is recommended, but portrait also works.</p><video id="camera" autoplay playsinline muted></video><button id="start">START CAMERA</button><button id="stop" disabled>STOP SESSION</button><div id="status">Disconnected</div></main><script>
 const video=document.getElementById("camera"),start=document.getElementById("start"),stop=document.getElementById("stop"),status=document.getElementById("status");let stream=null,socket=null,timer=null,sending=false,canvas=document.createElement("canvas"),sentAt=0;
 function setStatus(t){status.textContent=t}
 async function startSession(){
@@ -28,18 +28,20 @@ async function startSession(){
 function sendFrame(){
  if(!socket||socket.readyState!==WebSocket.OPEN||sending||video.readyState<2)return;
  if(socket.bufferedAmount>250000)return;
- sending=true;
  const sourceW=video.videoWidth,sourceH=video.videoHeight;
- const targetW=960,targetH=540,targetAspect=targetW/targetH,sourceAspect=sourceW/sourceH;
- let sx=0,sy=0,sw=sourceW,sh=sourceH;
- if(sourceAspect>targetAspect){sw=Math.round(sourceH*targetAspect);sx=Math.round((sourceW-sw)/2)}
- else if(sourceAspect<targetAspect){sh=Math.round(sourceW/targetAspect);sy=Math.round((sourceH-sh)/2)}
+ if(!sourceW||!sourceH)return;
+ sending=true;
+ // Preserve the complete camera frame. No crop and no forced landscape rotation.
+ const maxW=960,maxH=960;
+ const scale=Math.min(1,maxW/sourceW,maxH/sourceH);
+ const targetW=Math.max(1,Math.round(sourceW*scale));
+ const targetH=Math.max(1,Math.round(sourceH*scale));
  canvas.width=targetW;canvas.height=targetH;
- canvas.getContext("2d").drawImage(video,sx,sy,sw,sh,0,0,targetW,targetH);
+ canvas.getContext("2d").drawImage(video,0,0,targetW,targetH);
  canvas.toBlob(blob=>{
    sending=false;
    if(blob&&socket.readyState===WebSocket.OPEN)blob.arrayBuffer().then(b=>socket.send(b));
- },"image/jpeg",.60);
+ },"image/jpeg",.62);
 }
 function stopSession(){if(timer)clearInterval(timer);if(socket)socket.close();if(stream)stream.getTracks().forEach(t=>t.stop());timer=null;socket=null;stream=null;stop.disabled=true;start.disabled=false;setStatus("Stopped")}
 start.onclick=startSession;stop.onclick=stopSession;</script></body></html>
