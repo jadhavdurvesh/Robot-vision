@@ -112,11 +112,47 @@ class VisionSession:
         self.last_process_ms = 0.0
         self.fps = 0.0
         self._last_process_time = None
+        self._previous_small = None
+        self._last_detections = []
+        self._frames_since_detection = 0
+        runtime = config.get("runtime", {})
+        self.adaptive_detection = bool(runtime.get("adaptive_detection", True))
+        self.motion_threshold = float(runtime.get("static_motion_threshold", 0.012))
+        self.static_detection_interval = max(1, int(runtime.get("static_detection_interval", 3)))
+        self.motion_resize = max(64, int(runtime.get("motion_resize", 160)))
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         with self.lock:
             started = time.perf_counter()
-            detections = self.detector.detect(frame)
+
+            # Cheap motion estimate lets us avoid wasting GPU work on nearly
+            # identical frames while immediately returning to full detection
+            # when the phone moves.
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            small_h = max(64, int(self.motion_resize * frame.shape[0] / frame.shape[1]))
+            small = cv2.resize(gray, (self.motion_resize, small_h), interpolation=cv2.INTER_AREA)
+            small = cv2.GaussianBlur(small, (5, 5), 0)
+
+            motion = 1.0
+            if self._previous_small is not None:
+                motion = float(cv2.absdiff(small, self._previous_small).mean()) / 255.0
+            self._previous_small = small
+
+            self._frames_since_detection += 1
+            run_detection = (
+                not self.adaptive_detection
+                or not self._last_detections
+                or motion >= self.motion_threshold
+                or self._frames_since_detection >= self.static_detection_interval
+            )
+
+            if run_detection:
+                detections = self.detector.detect(frame)
+                self._last_detections = detections
+                self._frames_since_detection = 0
+            else:
+                detections = self._last_detections
+
             obstacle_map = build_obstacle_map(
                 frame.shape, detections, self.obstacle_classes,
                 self.roi_top, self.padding
