@@ -10,6 +10,7 @@ import numpy as np
 class DepthResult:
     depth: np.ndarray
     near_mask: np.ndarray
+    metric: bool = False
 
 
 class MonocularDepth:
@@ -24,6 +25,7 @@ class MonocularDepth:
         self.device = device
         self._processor = None
         self._model = None
+        self.metric = "Metric-Indoor" in model_id
 
     def _load(self) -> None:
         if self._model is not None:
@@ -58,14 +60,15 @@ class MonocularDepth:
             )[0]["predicted_depth"]
 
         depth = predicted.detach().float().cpu().numpy()
-        depth = cv2.normalize(depth, None, 0.0, 1.0, cv2.NORM_MINMAX)
 
-        # Depth Anything's relative output is normalized here only for visualization.
-        # Larger values represent farther/closer depending on model convention; do not
-        # interpret this mask as metric distance.
-        # The relative checkpoint uses inverse-depth semantics: larger values
-        # indicate nearer regions. Values are NOT metres and only make sense
-        # within the current frame.
+        if self.metric:
+            # Metric Indoor is distance-like: smaller values are nearer.
+            near_threshold = float(np.percentile(depth, 18))
+            near_mask = (depth <= near_threshold).astype(np.uint8) * 255
+            return DepthResult(depth=depth, near_mask=near_mask, metric=True)
+
+        depth = cv2.normalize(depth, None, 0.0, 1.0, cv2.NORM_MINMAX)
+        # Relative checkpoint: larger normalized values represent nearer structure.
         near_threshold = float(np.percentile(depth, 82))
         near_mask = (depth >= near_threshold).astype(np.uint8) * 255
-        return DepthResult(depth=depth, near_mask=near_mask)
+        return DepthResult(depth=depth, near_mask=near_mask, metric=False)
