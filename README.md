@@ -1,25 +1,36 @@
 # Robot Vision
 
-A college-project prototype for real-time robot vision and local path planning using a mobile phone camera connected to a PC.
+College-project prototype for real-time robot vision and local path planning using a **wireless mobile phone camera**.
 
-## Scope
+This project is intentionally separate from **DMJ Vision**.
 
-This project is intentionally separate from **DMJ Vision**. It is a college robotics/vision project and does not require a physical moving robot. The phone acts as the camera, while the operator moves it manually to simulate robot motion.
+## Architecture
 
-## Pipeline
+```text
+PHONE CAMERA
+    │ Wi-Fi / HTTP stream
+    ▼
+ROBOT VISION
+    ├── YOLO detection + tracking
+    ├── depth estimation module
+    ├── obstacle map
+    ├── local path planner
+    └── live visualization
+```
 
-mobile camera -> video input -> YOLO detection/tracking -> obstacle map -> local path planner -> live visualization
+The operator manually moves the phone forward to simulate robot movement. No physical moving robot is required.
 
-## Features
+## Hybrid execution
 
-- Live camera input from a PC camera or phone stream URL.
-- Real-time detection of people and common objects with YOLO.
-- Persistent object IDs using YOLO tracking.
-- Detection-based obstacle map with a configurable safety margin.
-- Local free-space path generation toward the forward direction.
-- Live overlay showing object boxes, labels, obstacle regions, path, direction, and FPS.
+The project uses short-lived sessions rather than an always-on server.
 
-## Quick start
+- `auto`: prefer a local GPU; otherwise check the configured cloud backend and fall back locally.
+- `local`: run processing on the PC.
+- `cloud`: reserved for a deployed compatible remote inference service.
+
+Start the program when testing/demonstrating and press **Q** to stop it. Nothing runs continuously in the background.
+
+## First local demo
 
 ```bash
 python -m venv .venv
@@ -30,46 +41,59 @@ Windows:
 .venv\Scripts\activate
 ```
 
-Linux/macOS:
-```bash
-source .venv/bin/activate
-```
-
-Then:
+Install:
 ```bash
 pip install -r requirements.txt
-python app.py --source 0
 ```
 
-For a mobile-camera streaming app:
+PC webcam:
 ```bash
-python app.py --source "http://PHONE_STREAM_URL/video"
+python run.py --backend local --source 0
 ```
 
-## Controls
+Wireless phone camera:
+```bash
+python run.py --backend auto --source "http://PHONE_STREAM_URL/video"
+```
 
-- Q — quit
-- R — reset planner state
+## Wireless phone setup
 
-## Important limitation
+Put the phone and PC on the same Wi-Fi network. Use a camera-streaming app/page that exposes an HTTP/MJPEG stream, then pass its stream URL to `--source`.
 
-A single monocular phone camera does not directly provide reliable metric distance. The initial planner therefore operates in image space using detected obstacle regions. A depth-estimation module can be added later without changing the planner interface.
+The repository includes `phone_camera.html` as the beginning of a browser-camera transport.
+
+## Cloud
+
+The cloud backend is intentionally optional. Free GPU services are useful for short experiments or demonstrations, but their quotas and availability are not suitable for assuming an always-on service. The repository contains a small `/health` + `/infer` client contract so a temporary cloud inference service can be plugged in later.
+
+## Current limitations
+
+- A monocular phone camera does not directly provide reliable metric distance.
+- The current planner is image-space/local rather than full persistent SLAM.
+- Cloud mode requires a deployed compatible remote inference service.
+- Wireless camera latency depends on the phone streaming method and Wi-Fi.
 
 ## Structure
 
 ```text
 Robot-vision/
 ├── app.py
+├── run.py
 ├── config.yaml
 ├── requirements.txt
+├── phone_camera.html
+├── hybrid/
+│   ├── backend.py
+│   └── cloud_client.py
 ├── vision/
-│   ├── __init__.py
+│   ├── camera.py
+│   ├── depth.py
 │   ├── detector.py
 │   └── obstacle_map.py
 ├── planning/
-│   ├── __init__.py
 │   └── local_planner.py
-└── visualization/
-    ├── __init__.py
-    └── renderer.py
+├── visualization/
+│   └── renderer.py
+└── tests/
+    └── test_navigation.py
 ```
