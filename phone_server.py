@@ -83,6 +83,8 @@ class VisionSession:
             p["safety_margin_px"],
         )
         self.lock = threading.Lock()
+        self.latest_jpeg = None
+        self.frame_count = 0
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         with self.lock:
@@ -92,7 +94,12 @@ class VisionSession:
                 self.roi_top, self.padding
             )
             path = self.planner.plan(obstacle_map.free_mask)
-            return draw_scene(frame, detections, obstacle_map, path, 0.0)
+            rendered = draw_scene(frame, detections, obstacle_map, path, 0.0)
+            ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                self.latest_jpeg = encoded.tobytes()
+            self.frame_count += 1
+            return rendered
 
 
 def load_config(path: str) -> dict:
@@ -109,6 +116,54 @@ async def health(request):
     return web.json_response({"ok": True, "service": "robot-vision-phone-session"})
 
 
+
+async def view_page(request):
+    return web.Response(text="""<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Robot Vision - Codespace Monitor</title>
+<style>
+body{margin:0;background:#070b10;color:#eef4f8;font-family:system-ui,sans-serif}
+header{padding:14px 18px;background:#101820;display:flex;justify-content:space-between;align-items:center}
+h1{font-size:20px;margin:0}.status{color:#62e58b}
+main{padding:14px;max-width:1400px;margin:auto}
+img{width:100%;display:block;background:#000;border-radius:12px}
+p{color:#9eabb5}
+</style></head><body>
+<header><h1>Robot Vision — Live Monitor</h1><div class="status">● LIVE</div></header>
+<main><img src="/stream" alt="Processed Robot Vision stream">
+<p>This dashboard replaces cv2.imshow() and is designed for GitHub Codespaces/browser viewing.</p></main>
+</body></html>""", content_type="text/html")
+
+
+async def mjpeg_stream(request):
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
+    await response.prepare(request)
+    session = request.app["session"]
+    last = None
+    try:
+        while True:
+            frame = session.latest_jpeg
+            if frame is not None and frame is not last:
+                await response.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(frame)).encode() + b"\r\n\r\n" + frame + b"\r\n")
+                last = frame
+            await asyncio.sleep(0.05)
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    return response
+
+
+async def view_health(request):
+    session = request.app["session"]
+    return web.json_response({"ok": True, "frames_processed": session.frame_count})
+
+
 async def websocket(request):
     ws = web.WebSocketResponse(max_msg_size=8 * 1024 * 1024)
     await ws.prepare(request)
@@ -121,11 +176,6 @@ async def websocket(request):
             if frame is None:
                 continue
             rendered = await asyncio.to_thread(session.process, frame)
-            cv2.imshow("Robot Vision - Phone Camera", rendered)
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                await ws.close()
-                break
             ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if ok:
                 await ws.send_bytes(encoded.tobytes())
@@ -150,6 +200,9 @@ def main():
     app.router.add_get("/", index)
     app.router.add_get("/health", health)
     app.router.add_get("/ws", websocket)
+    app.router.add_get("/view", view_page)
+    app.router.add_get("/stream", mjpeg_stream)
+    app.router.add_get("/view-health", view_health)
 
     url = f"https://{ip}:{args.port}/"
     print("\nRobot Vision wireless session")
