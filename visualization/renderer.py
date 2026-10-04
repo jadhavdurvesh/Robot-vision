@@ -14,6 +14,7 @@ def draw_scene(
     obstacle_map: ObstacleMap,
     path: PlannedPath,
     fps: float,
+    inference_ms: float = 0.0,
 ) -> np.ndarray:
     output = frame.copy()
     obstacle_layer = np.zeros_like(output)
@@ -46,8 +47,8 @@ def draw_scene(
     target = path.points[-1] if path.points else bottom
     cv2.arrowedLine(output, bottom, target, (255, 200, 0), 3, cv2.LINE_AA, tipLength=0.15)
 
-    status = f"FPS: {fps:.1f} | OBJECTS: {len(detections)} | PATH: {path.direction}"
+    status = f"FPS: {fps:.1f} | INFER: {inference_ms:.0f}ms | OBJECTS: {len(detections)} | PATH: {path.direction}"
     cv2.rectangle(output, (0, 0), (min(width, 700), 40), (20, 20, 20), -1)
     cv2.putText(output, status, (12, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 2)
-    cv2.putText(output, "Q: quit   R: reset", (12, height - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    cv2.putText(output, "Q: quit   R: reset   |   GREEN = FREE-SPACE PATH   |   RED = OBSTACLE", (12, height - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     return output
