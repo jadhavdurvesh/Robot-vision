@@ -5,6 +5,7 @@ import numpy as np
 
 from planning.local_planner import PlannedPath
 from vision.detector import Detection
+from vision.depth import DepthResult
 from vision.obstacle_map import ObstacleMap
 
 
@@ -22,9 +23,21 @@ def draw_scene(
     path: PlannedPath,
     fps: float,
     inference_ms: float = 0.0,
+    depth_result: DepthResult | None = None,
 ) -> np.ndarray:
     output = frame.copy()
     height, width = output.shape[:2]
+
+    # --- Optional near-depth overlay ---
+    if depth_result is not None:
+        near = cv2.resize(
+            depth_result.near_mask,
+            (width, height),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        depth_layer = np.zeros_like(output)
+        depth_layer[near > 0] = (255, 80, 30)
+        output = cv2.addWeighted(output, 0.92, depth_layer, 0.08, 0)
 
     # --- Subtle obstacle overlay ---
     obstacle_layer = np.zeros_like(output)
@@ -92,6 +105,8 @@ def draw_scene(
     _text(output, f"{fps:.1f} FPS", (420, 22), 0.48, (180, 220, 255), 1)
     _text(output, f"{inference_ms:.0f}ms", (500, 22), 0.48, (180, 220, 255), 1)
     _text(output, f"CLR {path.clearance:.0%}", (575, 22), 0.44, (150, 235, 190), 1)
+    if depth_result is not None:
+        _text(output, "DEPTH", (655, 22), 0.44, (255, 170, 90), 1)
 
     # --- Compact object list ---
     if detections:
