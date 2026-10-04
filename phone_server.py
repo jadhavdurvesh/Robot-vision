@@ -162,6 +162,7 @@ class VisionSession:
         )
         self._odo_state = self._odometry.last
         self._local_map_result = None
+        self._pending_map_update = False
 
     def _estimate_depth_async(self, frame: np.ndarray) -> DepthResult:
         depth_frame = frame
@@ -265,6 +266,17 @@ class VisionSession:
                 and self._map_frame_count % self.map_interval == 0
             ):
                 depth_for_map = None if self._depth_result is None else self._depth_result.depth
+                # Map update is completed below after planning so the
+                # current route can also be projected into the map.
+                self._pending_map_update = True
+
+            path = self.planner.plan(obstacle_map.free_mask)
+
+            if (
+                self.map_enabled
+                and self._pending_map_update
+            ):
+                depth_for_map = None if self._depth_result is None else self._depth_result.depth
                 self._local_map_result = self._local_map.update(
                     depth_for_map,
                     detections,
@@ -272,9 +284,9 @@ class VisionSession:
                     frame.shape,
                     self.roi_top,
                     metric_depth=bool(self._depth_result and self._depth_result.metric),
+                    path=path,
                 )
-
-            path = self.planner.plan(obstacle_map.free_mask)
+                self._pending_map_update = False
             elapsed = time.perf_counter() - started
             self.last_process_ms = elapsed * 1000.0
             now = time.perf_counter()
