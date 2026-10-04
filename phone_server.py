@@ -218,8 +218,6 @@ def main():
     app.router.add_get("/health", health)
     app.router.add_get("/ws", websocket)
     app.router.add_get("/view", view_page)
-    app.router.add_get("/stream", mjpeg_stream)
-    app.router.add_get("/view-health", view_health)
 
     # Separate browser monitor for GitHub Codespaces / remote development.
     monitor = web.Application()
