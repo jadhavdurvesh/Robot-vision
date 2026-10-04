@@ -7,6 +7,8 @@ from planning.local_planner import PlannedPath
 from vision.detector import Detection
 from vision.depth import DepthResult
 from vision.obstacle_map import ObstacleMap
+from vision.odometry import OdometryState
+from vision.local_map import LocalMap
 
 
 def _text(img, text, xy, scale=0.48, color=(235, 240, 245), thickness=1):
@@ -24,6 +26,8 @@ def draw_scene(
     fps: float,
     inference_ms: float = 0.0,
     depth_result: DepthResult | None = None,
+    odometry: OdometryState | None = None,
+    local_map: LocalMap | None = None,
 ) -> np.ndarray:
     output = frame.copy()
     height, width = output.shape[:2]
@@ -107,6 +111,10 @@ def draw_scene(
     _text(output, f"CLR {path.clearance:.0%}", (575, 22), 0.44, (150, 235, 190), 1)
     if depth_result is not None:
         _text(output, "DEPTH", (655, 22), 0.44, (255, 170, 90), 1)
+    if odometry is not None:
+        odo_state = "TRACK" if odometry.tracking else "SEARCH"
+        _text(output, f"VO {odo_state}", (710, 22), 0.40, (130, 210, 255), 1)
+        _text(output, f"{odometry.inliers}/{odometry.matches}", (775, 22), 0.40, (170, 205, 225), 1)
 
     # --- Compact object list ---
     if detections:
@@ -138,6 +146,18 @@ def draw_scene(
                 (225, 230, 235),
                 1,
             )
+
+    # --- Local spatial map inset ---
+    if local_map is not None:
+        map_img = cv2.resize(local_map.image, (190, 190), interpolation=cv2.INTER_NEAREST)
+        mx = width - 200
+        my = 48
+        overlay = output.copy()
+        cv2.rectangle(overlay, (mx - 4, my - 4), (width - 6, my + 194), (8, 12, 18), -1)
+        output = cv2.addWeighted(overlay, 0.72, output, 0.28, 0)
+        output[my:my + 190, mx:mx + 190] = map_img
+        _text(output, "LOCAL MAP", (mx + 6, my + 15), 0.40, (255, 255, 255), 1)
+        _text(output, f"COV {local_map.coverage:.1%}", (mx + 6, my + 35), 0.36, (190, 220, 235), 1)
 
     # --- Path information card ---
     card_w, card_h = 225, 74
