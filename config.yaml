@@ -51,3 +51,9 @@ planner:
   lateral_samples: 31
   lookahead_ratio: 0.72
   safety_margin_px: 10
+
+runtime:
+  adaptive_detection: true
+  static_motion_threshold: 0.012
+  static_detection_interval: 3
+  motion_resize: 160
