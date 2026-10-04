@@ -7,6 +7,7 @@ import socket
 import ssl
 import tempfile
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -85,9 +86,13 @@ class VisionSession:
         self.lock = threading.Lock()
         self.latest_jpeg = None
         self.frame_count = 0
+        self.last_process_ms = 0.0
+        self.fps = 0.0
+        self._last_process_time = None
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         with self.lock:
+            started = time.perf_counter()
             detections = self.detector.detect(frame)
             obstacle_map = build_obstacle_map(
                 frame.shape, detections, self.obstacle_classes,
@@ -98,6 +103,13 @@ class VisionSession:
             ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
                 self.latest_jpeg = encoded.tobytes()
+            elapsed = time.perf_counter() - started
+            self.last_process_ms = elapsed * 1000.0
+            now = time.perf_counter()
+            if self._last_process_time is not None:
+                instant = 1.0 / max(1e-6, now - self._last_process_time)
+                self.fps = instant if self.fps == 0 else self.fps * 0.8 + instant * 0.2
+            self._last_process_time = now
             self.frame_count += 1
             return rendered
 
@@ -193,7 +205,7 @@ async def websocket(request):
             if key == ord("q"):
                 await ws.close()
                 break
-            ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 60])
             if ok:
                 await ws.send_bytes(encoded.tobytes())
         elif message.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
@@ -241,11 +253,15 @@ def main():
         ).start()
 
     url = f"https://{ip}:{args.port}/"
+    cv2.namedWindow("Robot Vision - Phone Camera", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Robot Vision - Phone Camera", 1280, 720)
+
     print("\nRobot Vision wireless session")
     print(f"Phone URL: {url}")
     print("Open the URL on the phone, accept the local certificate warning, then tap START CAMERA.")
-    print("Press Ctrl+C to stop the session.\n")
+    print("Press Q in the OpenCV window or Ctrl+C in the terminal to stop.\n")
     print(f"LAN monitor (Codespaces/remote): http://{ip}:8080/")
+    print("Vision display: OpenCV window on this PC")
     print("Codespaces monitor: http://localhost:8080/ (only when running inside Codespaces)")
 
     async def main_async():
