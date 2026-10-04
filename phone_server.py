@@ -23,6 +23,8 @@ from planning.local_planner import LocalPlanner
 from vision.detector import ObjectDetector
 from vision.depth import MonocularDepth, DepthResult
 from vision.obstacle_map import build_obstacle_map
+from vision.odometry import VisualOdometry, OdometryState
+from vision.local_map import LocalOccupancyMap, LocalMap
 from visualization.renderer import draw_scene
 
 ROOT = Path(__file__).resolve().parent
@@ -131,9 +133,31 @@ class VisionSession:
         self._depth_engine = None
         if self.depth_enabled:
             self._depth_engine = MonocularDepth(
-                model_id=depth_cfg.get("model", "depth-anything/Depth-Anything-V2-Small-hf"),
+                model_id=depth_cfg.get("model", "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf"),
                 device=depth_cfg.get("device", "auto"),
             )
+
+        odo_cfg = config.get("odometry", {})
+        self.odo_enabled = bool(odo_cfg.get("enabled", True))
+        self.odo_interval = max(1, int(odo_cfg.get("interval", 2)))
+        self._odo_frame_count = 0
+        self._odometry = VisualOdometry(
+            width=int(odo_cfg.get("input_width", 480)),
+            max_features=int(odo_cfg.get("max_features", 700)),
+            min_matches=int(odo_cfg.get("min_matches", 24)),
+            min_inliers=int(odo_cfg.get("min_inliers", 12)),
+        )
+        map_cfg = config.get("mapping", {})
+        self.map_enabled = bool(map_cfg.get("enabled", True))
+        self.map_interval = max(1, int(map_cfg.get("update_interval", 3)))
+        self._map_frame_count = 0
+        self._local_map = LocalOccupancyMap(
+            size=int(map_cfg.get("size", 320)),
+            meters_per_cell=float(map_cfg.get("meters_per_cell", 0.05)),
+            decay=float(map_cfg.get("decay", 0.985)),
+        )
+        self._odo_state = self._odometry.last
+        self._local_map_result = None
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         with self.lock:
@@ -194,10 +218,30 @@ class VisionSession:
                 )
                 self._depth_result = DepthResult(depth=depth_map, near_mask=near_map)
 
+            self._odo_frame_count += 1
+            if self.odo_enabled and self._odo_frame_count % self.odo_interval == 0:
+                self._odo_state = self._odometry.update(frame)
+
             obstacle_map = build_obstacle_map(
                 frame.shape, detections, self.obstacle_classes,
                 self.roi_top, self.padding, self._depth_result
             )
+
+            self._map_frame_count += 1
+            if (
+                self.map_enabled
+                and self._map_frame_count % self.map_interval == 0
+            ):
+                depth_for_map = None if self._depth_result is None else self._depth_result.depth
+                self._local_map_result = self._local_map.update(
+                    depth_for_map,
+                    detections,
+                    self._odo_state.position,
+                    frame.shape,
+                    self.roi_top,
+                    metric_depth=bool(self._depth_result and self._depth_result.metric),
+                )
+
             path = self.planner.plan(obstacle_map.free_mask)
             elapsed = time.perf_counter() - started
             self.last_process_ms = elapsed * 1000.0
@@ -209,7 +253,8 @@ class VisionSession:
             self.frame_count += 1
             rendered = draw_scene(
                 frame, detections, obstacle_map, path,
-                self.fps, self.last_process_ms, self._depth_result
+                self.fps, self.last_process_ms, self._depth_result,
+                self._odo_state, self._local_map_result
             )
             ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
