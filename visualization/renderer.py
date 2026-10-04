@@ -115,6 +115,7 @@ def draw_scene(
         odo_state = "TRACK" if odometry.tracking else "SEARCH"
         _text(output, f"VO {odo_state}", (710, 22), 0.40, (130, 210, 255), 1)
         _text(output, f"{odometry.inliers}/{odometry.matches}", (775, 22), 0.40, (170, 205, 225), 1)
+        _text(output, "METRIC" if odometry.scale_known else "REL", (835, 22), 0.38, (120, 235, 160) if odometry.scale_known else (190, 190, 190), 1)
 
     # --- Compact object list ---
     if detections:
@@ -160,7 +161,7 @@ def draw_scene(
         _text(output, f"COV {local_map.coverage:.1%}", (mx + 6, my + 35), 0.36, (190, 220, 235), 1)
         _text(
             output,
-            f"OBS {local_map.obstacle_count}  TRJ {local_map.trajectory_length:.1f}",
+            f"OBS {local_map.obstacle_count}  TRJ {local_map.trajectory_length:.2f} {"m" if local_map.metric_scale else "rel"}",
             (mx + 6, my + 183),
             0.31,
             (185, 205, 220),
