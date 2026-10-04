@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from planning.local_planner import PlannedPath
+
 import cv2
 import numpy as np
 
@@ -19,6 +21,9 @@ class LocalMap:
     image: np.ndarray
     points: list[MapPoint]
     coverage: float
+    trajectory_length: float = 0.0
+    obstacle_count: int = 0
+    explored_cells: int = 0
 
 
 class LocalOccupancyMap:
@@ -30,10 +35,16 @@ class LocalOccupancyMap:
         self.decay = decay
         self.grid = np.zeros((size, size), dtype=np.float32)
         self.traversal = np.zeros((size, size), dtype=np.float32)
+        self.trajectory: list[tuple[float, float]] = []
+        self.last_position = np.zeros(3, dtype=np.float64)
+        self.trajectory_length = 0.0
 
     def reset(self) -> None:
         self.grid.fill(0)
         self.traversal.fill(0)
+        self.trajectory.clear()
+        self.last_position[:] = 0
+        self.trajectory_length = 0.0
 
     def _world_to_cell(self, x: float, y: float) -> tuple[int, int]:
         cx = self.size // 2 + int(x / self.meters_per_cell)
@@ -48,9 +59,21 @@ class LocalOccupancyMap:
         frame_shape: tuple[int, int, int],
         roi_top_ratio: float,
         metric_depth: bool = False,
+        path: PlannedPath | None = None,
     ) -> LocalMap:
         self.grid *= self.decay
         self.traversal *= self.decay
+
+        # Bounded relative trajectory. Monocular odometry has unknown scale.
+        current = np.asarray(position, dtype=np.float64)
+        if not self.trajectory or np.linalg.norm(current - self.last_position) > 0.015:
+            self.trajectory.append((float(current[0]), float(current[2])))
+            if len(self.trajectory) > 500:
+                self.trajectory = self.trajectory[-500:]
+            if len(self.trajectory) > 1:
+                px, py = self.trajectory[-2]
+                self.trajectory_length += float(np.hypot(current[0] - px, current[2] - py))
+            self.last_position = current.copy()
 
         h, w = frame_shape[:2]
         points: list[MapPoint] = []
@@ -117,10 +140,51 @@ class LocalOccupancyMap:
         canvas[:, :, 2] = (occupied * 255).astype(np.uint8)
 
         center = self.size // 2
+
+        # Persistent odometry trajectory.
+        if len(self.trajectory) > 1:
+            traj_px = []
+            for tx, ty in self.trajectory:
+                px, py = self._world_to_cell(tx, ty)
+                if 0 <= px < self.size and 0 <= py < self.size:
+                    traj_px.append((px, py))
+            if len(traj_px) > 1:
+                cv2.polylines(
+                    canvas,
+                    [np.asarray(traj_px, dtype=np.int32).reshape(-1, 1, 2)],
+                    False, (255, 210, 40), 2, cv2.LINE_AA,
+                )
+
+        # Project current planned route into the relative map.
+        if path is not None and path.points:
+            route_px = []
+            for px_img, py_img in path.points:
+                lateral = (px_img - w * 0.5) / max(1.0, w) * 2.0
+                forward = (h - py_img) / max(1.0, h) * 2.2
+                wx = float(current[0] + lateral)
+                wy = float(current[2] + forward)
+                px, py = self._world_to_cell(wx, wy)
+                if 0 <= px < self.size and 0 <= py < self.size:
+                    route_px.append((px, py))
+            if len(route_px) > 1:
+                cv2.polylines(
+                    canvas,
+                    [np.asarray(route_px, dtype=np.int32).reshape(-1, 1, 2)],
+                    False, (0, 255, 255), 3, cv2.LINE_AA,
+                )
+
         cv2.drawMarker(
             canvas, (center, center), (255, 255, 255),
-            cv2.MARKER_TRIANGLE_UP, 12, 2, cv2.LINE_AA
+            cv2.MARKER_TRIANGLE_UP, 14, 2, cv2.LINE_AA,
         )
+        cv2.circle(canvas, (center, center), 5, (255, 255, 255), -1, cv2.LINE_AA)
 
-        coverage = float(np.count_nonzero((occupied + explored) > 0.10)) / float(self.size * self.size)
-        return LocalMap(canvas, points, coverage)
+        obstacle_count = len(points)
+        explored_cells = int(np.count_nonzero((occupied + explored) > 0.10))
+        coverage = float(explored_cells) / float(self.size * self.size)
+        return LocalMap(
+            canvas, points, coverage,
+            trajectory_length=self.trajectory_length,
+            obstacle_count=obstacle_count,
+            explored_cells=explored_cells,
+        )
