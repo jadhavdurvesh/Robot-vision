@@ -47,6 +47,7 @@ class LocalOccupancyMap:
         position: np.ndarray,
         frame_shape: tuple[int, int, int],
         roi_top_ratio: float,
+        metric_depth: bool = False,
     ) -> LocalMap:
         self.grid *= self.decay
         self.traversal *= self.decay
@@ -63,9 +64,13 @@ class LocalOccupancyMap:
                     continue
                 for xx in np.linspace(int(w * 0.18), int(w * 0.82), 17).astype(int):
                     d = float(row[min(w - 1, xx)])
-                    # Lower depth values are treated as farther structure.
-                    # Only use moderate depth bands as weak traversal evidence.
-                    if 0.15 < d < 0.85:
+                    # Metric indoor depth is distance-like; relative depth is
+                    # normalized. Traversal evidence remains deliberately weak.
+                    valid_depth = (
+                        0.25 < d < 6.0 if metric_depth
+                        else 0.15 < d < 0.85
+                    )
+                    if valid_depth:
                         nx = (xx - w * 0.5) / max(1.0, w) * 2.2
                         ny = (h - yy) / max(1.0, h) * 2.5
                         wx = float(position[0] + nx)
