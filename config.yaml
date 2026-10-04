@@ -1,0 +1,34 @@
+camera:
+  width: 1280
+  height: 720
+  fps: 30
+  reconnect_delay_seconds: 1.0
+
+detection:
+  model: yolov8n.pt
+  confidence: 0.35
+  iou: 0.45
+  device: auto
+
+obstacle_map:
+  roi_top_ratio: 0.38
+  obstacle_padding_px: 18
+  obstacle_classes:
+    - person
+    - bicycle
+    - car
+    - motorcycle
+    - bus
+    - truck
+    - chair
+    - couch
+    - bed
+    - dining table
+    - potted plant
+
+planner:
+  corridor_bottom_ratio: 0.96
+  corridor_top_ratio: 0.52
+  lateral_samples: 31
+  lookahead_ratio: 0.72
+  safety_margin_px: 10
