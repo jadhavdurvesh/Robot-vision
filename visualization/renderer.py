@@ -97,7 +97,7 @@ def draw_scene(
         panel_x = 8
         panel_y = bar_h + 8
         line_h = 19
-        panel_h = 8 + line_h * min(len(detections), 8)
+        panel_h = 39 + line_h * min(len(detections), 8)
 
         overlay = output.copy()
         cv2.rectangle(
