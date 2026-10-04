@@ -99,10 +99,6 @@ class VisionSession:
                 self.roi_top, self.padding
             )
             path = self.planner.plan(obstacle_map.free_mask)
-            rendered = draw_scene(frame, detections, obstacle_map, path, 0.0)
-            ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ok:
-                self.latest_jpeg = encoded.tobytes()
             elapsed = time.perf_counter() - started
             self.last_process_ms = elapsed * 1000.0
             now = time.perf_counter()
@@ -111,6 +107,13 @@ class VisionSession:
                 self.fps = instant if self.fps == 0 else self.fps * 0.8 + instant * 0.2
             self._last_process_time = now
             self.frame_count += 1
+            rendered = draw_scene(
+                frame, detections, obstacle_map, path,
+                self.fps, self.last_process_ms
+            )
+            ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                self.latest_jpeg = encoded.tobytes()
             return rendered
 
 
@@ -200,7 +203,16 @@ async def websocket(request):
             if frame is None:
                 continue
             rendered = await asyncio.to_thread(session.process, frame)
-            cv2.imshow("Robot Vision - Phone Camera", rendered)
+            display_w, display_h = 1280, 720
+            h, w = rendered.shape[:2]
+            scale = min(display_w / w, display_h / h)
+            rw, rh = max(1, int(w * scale)), max(1, int(h * scale))
+            resized = cv2.resize(rendered, (rw, rh), interpolation=cv2.INTER_AREA)
+            display = np.zeros((display_h, display_w, 3), dtype=np.uint8)
+            x = (display_w - rw) // 2
+            y = (display_h - rh) // 2
+            display[y:y + rh, x:x + rw] = resized
+            cv2.imshow("Robot Vision - Phone Camera", display)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 await ws.close()
