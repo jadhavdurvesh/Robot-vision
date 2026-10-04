@@ -5,11 +5,11 @@ camera:
   reconnect_delay_seconds: 1.0
 
 detection:
-  model: yolov8n.pt
-  confidence: 0.35
-  iou: 0.45
+  model: yolo11s.pt
+  confidence: 0.20
+  iou: 0.50
   device: auto
-  imgsz: 512
+  imgsz: 640
   half: true
 
 obstacle_map:
@@ -22,11 +22,28 @@ obstacle_map:
     - motorcycle
     - bus
     - truck
+    - train
     - chair
     - couch
     - bed
     - dining table
     - potted plant
+    - suitcase
+    - backpack
+    - handbag
+    - bench
+    - skateboard
+    - snowboard
+    - sports ball
+    - dog
+    - cat
+    - bicycle
+    - motorcycle
+    - tv
+    - laptop
+    - microwave
+    - oven
+    - refrigerator
 
 planner:
   corridor_bottom_ratio: 0.96
