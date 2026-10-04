@@ -57,3 +57,10 @@ runtime:
   static_motion_threshold: 0.012
   static_detection_interval: 3
   motion_resize: 160
+
+depth:
+  enabled: true
+  model: depth-anything/Depth-Anything-V2-Small-hf
+  device: auto
+  interval: 5
+  input_width: 384
