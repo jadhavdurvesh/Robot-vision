@@ -21,6 +21,7 @@ from cryptography.x509.oid import NameOID
 
 from planning.local_planner import LocalPlanner
 from vision.detector import ObjectDetector
+from vision.depth import MonocularDepth, DepthResult
 from vision.obstacle_map import build_obstacle_map
 from visualization.renderer import draw_scene
 
@@ -121,6 +122,19 @@ class VisionSession:
         self.static_detection_interval = max(1, int(runtime.get("static_detection_interval", 3)))
         self.motion_resize = max(64, int(runtime.get("motion_resize", 160)))
 
+        depth_cfg = config.get("depth", {})
+        self.depth_enabled = bool(depth_cfg.get("enabled", False))
+        self.depth_interval = max(1, int(depth_cfg.get("interval", 5)))
+        self.depth_width = max(160, int(depth_cfg.get("input_width", 384)))
+        self._depth_frame_count = 0
+        self._depth_result: DepthResult | None = None
+        self._depth_engine = None
+        if self.depth_enabled:
+            self._depth_engine = MonocularDepth(
+                model_id=depth_cfg.get("model", "depth-anything/Depth-Anything-V2-Small-hf"),
+                device=depth_cfg.get("device", "auto"),
+            )
+
     def process(self, frame: np.ndarray) -> np.ndarray:
         with self.lock:
             started = time.perf_counter()
@@ -153,9 +167,36 @@ class VisionSession:
             else:
                 detections = self._last_detections
 
+            self._depth_frame_count += 1
+            if (
+                self.depth_enabled
+                and self._depth_engine is not None
+                and (self._depth_result is None or self._depth_frame_count % self.depth_interval == 0)
+            ):
+                depth_frame = frame
+                scale = min(1.0, self.depth_width / max(1, frame.shape[1]))
+                if scale < 1.0:
+                    depth_frame = cv2.resize(
+                        frame,
+                        (self.depth_width, max(64, int(frame.shape[0] * scale))),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                depth_small = self._depth_engine.estimate(depth_frame)
+                depth_map = cv2.resize(
+                    depth_small.depth,
+                    (frame.shape[1], frame.shape[0]),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+                near_map = cv2.resize(
+                    depth_small.near_mask,
+                    (frame.shape[1], frame.shape[0]),
+                    interpolation=cv2.INTER_NEAREST,
+                )
+                self._depth_result = DepthResult(depth=depth_map, near_mask=near_map)
+
             obstacle_map = build_obstacle_map(
                 frame.shape, detections, self.obstacle_classes,
-                self.roi_top, self.padding
+                self.roi_top, self.padding, self._depth_result
             )
             path = self.planner.plan(obstacle_map.free_mask)
             elapsed = time.perf_counter() - started
