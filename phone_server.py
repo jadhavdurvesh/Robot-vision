@@ -242,7 +242,8 @@ def main():
     print(f"Phone URL: {url}")
     print("Open the URL on the phone, accept the local certificate warning, then tap START CAMERA.")
     print("Press Ctrl+C to stop the session.\n")
-    print("Codespaces monitor: http://localhost:8080/ (forward port 8080 in the Ports tab)")
+    print(f"LAN monitor: http://{ip}:8080/")
+    print("Codespaces monitor: http://localhost:8080/ (only when running inside Codespaces)")
 
     async def main_async():
         await start_monitor()
