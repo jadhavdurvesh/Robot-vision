@@ -121,6 +121,11 @@ async def websocket(request):
             if frame is None:
                 continue
             rendered = await asyncio.to_thread(session.process, frame)
+            cv2.imshow("Robot Vision - Phone Camera", rendered)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                await ws.close()
+                break
             ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if ok:
                 await ws.send_bytes(encoded.tobytes())
