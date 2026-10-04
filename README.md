@@ -97,3 +97,39 @@ Robot-vision/
 └── tests/
     └── test_navigation.py
 ```
+
+## Wireless phone-camera demo
+
+The easiest live demo uses a phone browser as the camera and the PC as the vision computer. Both devices should be on the same Wi-Fi network.
+
+### 1. Install
+
+```bash
+python -m venv .venv
+# Windows PowerShell
+.venv\\Scripts\\Activate.ps1
+pip install -r requirements.txt
+```
+
+The first run of Ultralytics may download the YOLO model.
+
+### 2. Start the phone session
+
+Windows: double-click `start_phone_camera.bat`, or run:
+
+```bash
+python phone_server.py
+```
+
+The terminal prints a URL such as `https://192.168.x.x:8443/`. Open that URL on the phone. Because the PC creates a local demo certificate, the phone browser will show a certificate warning; accept it for this private LAN demo. Then press **START CAMERA** and allow camera permission.
+
+The PC window named **Robot Vision - Phone Camera** is the processed output. Move the phone forward manually; detections, obstacle regions and the local path are recalculated from each received frame. Press **Q** in the PC vision window to stop.
+
+### 3. If the phone cannot connect
+
+- Confirm both devices are on the same Wi-Fi.
+- Allow Python through Windows Firewall on **Private networks**.
+- Make sure TCP port `8443` is not blocked.
+- Do not use mobile data for this first test.
+
+This wireless demo intentionally uses short-lived JPEG-over-WebSocket transport because it is simple and reliable for a college prototype. It is not intended as the final low-latency WebRTC transport.
