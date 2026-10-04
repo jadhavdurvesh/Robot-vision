@@ -74,7 +74,7 @@ class VisionSession:
         d = config["detection"]
         o = config["obstacle_map"]
         p = config["planner"]
-        self.detector = ObjectDetector(d["model"], d["confidence"], d["iou"], d["device"])
+        self.detector = ObjectDetector(d["model"], d["confidence"], d["iou"], d["device"], int(d.get("imgsz", 512)), bool(d.get("half", True)))
         self.obstacle_classes = set(o["obstacle_classes"])
         self.roi_top = float(o["roi_top_ratio"])
         self.padding = int(o["obstacle_padding_px"])
@@ -196,13 +196,18 @@ async def websocket(request):
     await ws.prepare(request)
     session = request.app["session"]
 
-    async for message in ws:
-        if message.type == web.WSMsgType.BINARY:
-            arr = np.frombuffer(message.data, dtype=np.uint8)
+    queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
+
+    async def inference_worker():
+        while not ws.closed:
+            data = await queue.get()
+            arr = np.frombuffer(data, dtype=np.uint8)
             frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if frame is None:
                 continue
+
             rendered = await asyncio.to_thread(session.process, frame)
+
             display_w, display_h = 1280, 720
             h, w = rendered.shape[:2]
             scale = min(display_w / w, display_h / h)
@@ -216,12 +221,30 @@ async def websocket(request):
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 await ws.close()
+                return
+
+    worker = asyncio.create_task(inference_worker())
+    try:
+        async for message in ws:
+            if message.type == web.WSMsgType.BINARY:
+                if queue.full():
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                try:
+                    queue.put_nowait(bytes(message.data))
+                except asyncio.QueueFull:
+                    pass
+            elif message.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
                 break
-            ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 60])
-            if ok:
-                await ws.send_bytes(encoded.tobytes())
-        elif message.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
-            break
+    finally:
+        worker.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
+
     return ws
 
 
