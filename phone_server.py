@@ -120,43 +120,55 @@ async def health(request):
 async def view_page(request):
     return web.Response(text="""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Robot Vision - Codespace Monitor</title>
+<title>Robot Vision - Live Monitor</title>
 <style>
 body{margin:0;background:#070b10;color:#eef4f8;font-family:system-ui,sans-serif}
 header{padding:14px 18px;background:#101820;display:flex;justify-content:space-between;align-items:center}
 h1{font-size:20px;margin:0}.status{color:#62e58b}
 main{padding:14px;max-width:1400px;margin:auto}
-img{width:100%;display:block;background:#000;border-radius:12px}
+#feed{width:100%;display:block;background:#000;border-radius:12px;min-height:240px;object-fit:contain}
 p{color:#9eabb5}
 </style></head><body>
-<header><h1>Robot Vision — Live Monitor</h1><div class="status">● LIVE</div></header>
-<main><img src="/stream" alt="Processed Robot Vision stream">
-<p>This dashboard replaces cv2.imshow() and is designed for GitHub Codespaces/browser viewing.</p></main>
-</body></html>""", content_type="text/html")
+<header><h1>Robot Vision — Live Monitor</h1><div id="status" class="status">● WAITING</div></header>
+<main><img id="feed" alt="Processed Robot Vision feed"><p id="frames">Frames processed: 0</p><p>Live browser monitor for the Robot Vision engine.</p></main>
+<script>
+const img=document.getElementById("feed"),status=document.getElementById("status"),frames=document.getElementById("frames");
+async function update(){
+ try{
+  const r=await fetch("/frame?ts="+Date.now(),{cache:"no-store"});
+  const data=await r.json();
+  frames.textContent="Frames processed: "+data.frames_processed;
+  if(data.available){
+   img.src="/frame.jpg?ts="+Date.now();
+   status.textContent="● LIVE";
+  }else{
+   status.textContent="● WAITING FOR PHONE";
+  }
+ }catch(e){status.textContent="● DISCONNECTED"}
+}
+setInterval(update,100);
+update();
+</script></body></html>""", content_type="text/html")
 
 
-async def mjpeg_stream(request):
-    response = web.StreamResponse(
-        status=200,
-        headers={
-            "Content-Type": "multipart/x-mixed-replace; boundary=frame",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-        },
-    )
-    await response.prepare(request)
+async def latest_frame(request):
     session = request.app["session"]
-    last = None
-    try:
-        while True:
-            frame = session.latest_jpeg
-            if frame is not None and frame is not last:
-                await response.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(frame)).encode() + b"\r\n\r\n" + frame + b"\r\n")
-                last = frame
-            await asyncio.sleep(0.05)
-    except (asyncio.CancelledError, ConnectionResetError):
-        pass
-    return response
+    frame = session.latest_jpeg
+    if frame is None:
+        return web.json_response({"available": False, "frames_processed": session.frame_count})
+    return web.Response(
+        body=frame,
+        content_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def frame_status(request):
+    session = request.app["session"]
+    return web.json_response({
+        "available": session.latest_jpeg is not None,
+        "frames_processed": session.frame_count,
+    })
 
 
 async def view_health(request):
@@ -208,7 +220,8 @@ def main():
     monitor = web.Application()
     monitor["session"] = app["session"]
     monitor.router.add_get("/", view_page)
-    monitor.router.add_get("/stream", mjpeg_stream)
+    monitor.router.add_get("/frame.jpg", latest_frame)
+    monitor.router.add_get("/frame", frame_status)
     monitor.router.add_get("/health", view_health)
 
     async def start_monitor():
