@@ -159,7 +159,7 @@ class VisualOdometry:
         fy = self.fy if self.fy is not None else focal
         cx, cy = gray.shape[1] * self.cx_ratio, gray.shape[0] * self.cy_ratio
         K = np.array(
-            [[focal, 0, cx], [0, focal, cy], [0, 0, 1]],
+            [[fx, 0, cx], [0, fy, cy], [0, 0, 1]],
             dtype=np.float64,
         )
 
