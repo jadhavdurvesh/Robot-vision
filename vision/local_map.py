@@ -24,6 +24,7 @@ class LocalMap:
     trajectory_length: float = 0.0
     obstacle_count: int = 0
     explored_cells: int = 0
+    metric_scale: bool = False
 
 
 class LocalOccupancyMap:
@@ -60,6 +61,7 @@ class LocalOccupancyMap:
         roi_top_ratio: float,
         metric_depth: bool = False,
         path: PlannedPath | None = None,
+        metric_scale: bool = False,
     ) -> LocalMap:
         self.grid *= self.decay
         self.traversal *= self.decay
@@ -187,4 +189,5 @@ class LocalOccupancyMap:
             trajectory_length=self.trajectory_length,
             obstacle_count=obstacle_count,
             explored_cells=explored_cells,
+            metric_scale=metric_scale,
         )
