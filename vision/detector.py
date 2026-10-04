@@ -20,13 +20,33 @@ class Detection:
 
 
 class ObjectDetector:
-    """YOLO detection and tracking wrapper."""
+    """Fast YOLO detection/tracking wrapper optimized for live video."""
 
-    def __init__(self, model_path: str, confidence: float, iou: float, device: str = "auto") -> None:
+    def __init__(
+        self,
+        model_path: str,
+        confidence: float,
+        iou: float,
+        device: str = "auto",
+        imgsz: int = 512,
+        half: bool = True,
+    ) -> None:
         self.model = YOLO(model_path)
         self.confidence = confidence
         self.iou = iou
         self.device = None if device == "auto" else device
+        self.imgsz = imgsz
+        self.half = half
+
+        # CUDA + FP16 substantially reduces inference cost on supported NVIDIA GPUs.
+        if device == "auto":
+            try:
+                import torch
+                self.use_half = bool(torch.cuda.is_available() and half)
+            except Exception:
+                self.use_half = False
+        else:
+            self.use_half = bool(half and str(device).startswith("cuda"))
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
         results = self.model.track(
@@ -34,6 +54,8 @@ class ObjectDetector:
             persist=True,
             conf=self.confidence,
             iou=self.iou,
+            imgsz=self.imgsz,
+            half=self.use_half,
             device=self.device,
             verbose=False,
         )
