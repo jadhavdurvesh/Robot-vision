@@ -133,3 +133,13 @@ The PC window named **Robot Vision - Phone Camera** is the processed output. Mov
 - Do not use mobile data for this first test.
 
 This wireless demo intentionally uses short-lived JPEG-over-WebSocket transport because it is simple and reliable for a college prototype. It is not intended as the final low-latency WebRTC transport.
+
+### Local monitor URL
+
+When running on a normal Windows PC, do **not** use `localhost:8080` for the project workflow. The server prints the PC's LAN address, for example:
+
+```
+LAN monitor: http://192.168.1.105:8080/
+```
+
+Open that address on the PC or another device on the same Wi-Fi. The phone camera continues to use the printed HTTPS address on port `8443`.
