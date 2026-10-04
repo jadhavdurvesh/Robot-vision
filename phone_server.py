@@ -69,6 +69,49 @@ def make_certificate(ip: str) -> tuple[str, str]:
     return str(cert_path), str(key_path)
 
 
+
+
+class OpenCVDisplay:
+    """Dedicated UI thread so cv2.imshow never blocks networking or inference."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.frame = None
+        self.running = True
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def show(self, frame: np.ndarray) -> None:
+        with self.lock:
+            self.frame = frame.copy()
+
+    def _run(self) -> None:
+        cv2.namedWindow("Robot Vision - Phone Camera", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Robot Vision - Phone Camera", 1280, 720)
+        while self.running:
+            with self.lock:
+                frame = None if self.frame is None else self.frame.copy()
+            if frame is not None:
+                h, w = frame.shape[:2]
+                scale = min(1280 / w, 720 / h)
+                rw, rh = max(1, int(w * scale)), max(1, int(h * scale))
+                resized = cv2.resize(frame, (rw, rh), interpolation=cv2.INTER_AREA)
+                display = np.zeros((720, 1280, 3), dtype=np.uint8)
+                x = (1280 - rw) // 2
+                y = (720 - rh) // 2
+                display[y:y + rh, x:x + rw] = resized
+                cv2.imshow("Robot Vision - Phone Camera", display)
+            key = cv2.waitKey(15) & 0xFF
+            if key == ord("q"):
+                self.running = False
+                break
+        cv2.destroyAllWindows()
+
+    def close(self) -> None:
+        self.running = False
+        self.thread.join(timeout=2.0)
+
+
 class VisionSession:
     def __init__(self, config: dict):
         d = config["detection"]
@@ -195,7 +238,7 @@ async def websocket(request):
     ws = web.WebSocketResponse(max_msg_size=8 * 1024 * 1024)
     await ws.prepare(request)
     session = request.app["session"]
-
+    display = request.app["display"]
     queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
 
     async def inference_worker():
@@ -205,23 +248,8 @@ async def websocket(request):
             frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if frame is None:
                 continue
-
             rendered = await asyncio.to_thread(session.process, frame)
-
-            display_w, display_h = 1280, 720
-            h, w = rendered.shape[:2]
-            scale = min(display_w / w, display_h / h)
-            rw, rh = max(1, int(w * scale)), max(1, int(h * scale))
-            resized = cv2.resize(rendered, (rw, rh), interpolation=cv2.INTER_AREA)
-            display = np.zeros((display_h, display_w, 3), dtype=np.uint8)
-            x = (display_w - rw) // 2
-            y = (display_h - rh) // 2
-            display[y:y + rh, x:x + rw] = resized
-            cv2.imshow("Robot Vision - Phone Camera", display)
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                await ws.close()
-                return
+            display.show(rendered)
 
     worker = asyncio.create_task(inference_worker())
     try:
@@ -244,7 +272,6 @@ async def websocket(request):
             await worker
         except asyncio.CancelledError:
             pass
-
     return ws
 
 
@@ -261,6 +288,7 @@ def main():
 
     app = web.Application(client_max_size=8 * 1024 * 1024)
     app["session"] = VisionSession(load_config(args.config))
+    app["display"] = OpenCVDisplay()
     app.router.add_get("/", index)
     app.router.add_get("/health", health)
     app.router.add_get("/ws", websocket)
@@ -288,9 +316,6 @@ def main():
         ).start()
 
     url = f"https://{ip}:{args.port}/"
-    cv2.namedWindow("Robot Vision - Phone Camera", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Robot Vision - Phone Camera", 1280, 720)
-
     print("\nRobot Vision wireless session")
     print(f"Phone URL: {url}")
     print("Open the URL on the phone, accept the local certificate warning, then tap START CAMERA.")
