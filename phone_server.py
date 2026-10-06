@@ -24,6 +24,7 @@ from cryptography.x509.oid import NameOID
 
 from planning.local_planner import LocalPlanner
 from planning.ground_navigation import GroundNavigator
+from planning.world_navigation import PersistentWorldNavigator
 from vision.detector import ObjectDetector
 from vision.depth import MonocularDepth, DepthResult
 from vision.obstacle_map import build_obstacle_map
@@ -194,6 +195,14 @@ class VisionSession:
         )
         self._nav_grid = self._ground_nav.grid.copy()
         self._nav_route = []
+        world_cfg = config.get("world_navigation", {})
+        self._world_nav = PersistentWorldNavigator(
+            size=int(world_cfg.get("size", 320)),
+            meters_per_cell=float(world_cfg.get("meters_per_cell", 0.05)),
+            decay=float(world_cfg.get("decay", 0.995)),
+            max_range=float(world_cfg.get("max_range", 7.0)),
+        )
+        self._world_route = []
 
     def reset(self) -> None:
         with self.lock:
@@ -217,6 +226,8 @@ class VisionSession:
             self._ground_nav.reset()
             self._nav_grid = self._ground_nav.grid.copy()
             self._nav_route = []
+            self._world_nav.reset()
+            self._world_route = []
 
     def _estimate_depth_async(self, frame: np.ndarray) -> DepthResult:
         depth_frame = frame
@@ -331,6 +342,19 @@ class VisionSession:
 
             path = self.planner.plan(obstacle_map.free_mask)
 
+            # Persistent world navigation. Previously mapped obstacles remain
+            # available to the planner even after leaving the current view.
+            if self.map_enabled and self._depth_result is not None:
+                self._world_nav.update(
+                    self._depth_result.depth,
+                    [d for d in detections if d.class_name in self.obstacle_classes],
+                    self.camera_matrix,
+                    self._odo_state.position,
+                    self._odo_state.rotation,
+                    metric=bool(self._depth_result.metric),
+                )
+                self._world_route = self._world_nav.plan(self._odo_state.position)
+
             # Map-based local navigation. The route is generated from the
             # depth/detected obstacles rather than from image-space alone.
             if self.map_enabled and self._depth_result is not None:
@@ -418,7 +442,11 @@ class VisionSession:
                     np.asarray(self._trajectory_3d, dtype=np.float32) - current
                     if self._trajectory_3d else None
                 )
-                if self._nav_route:
+                if self._world_route:
+                    world_route = self._world_nav.route_world(self._world_route)
+                    current_world = self._odo_state.position.astype(np.float32)
+                    self._path_3d = world_route - current_world
+                elif self._nav_route:
                     route3 = []
                     for gx, gy in self._nav_route[::max(1, len(self._nav_route) // 20)]:
                         x = (gx - self._ground_nav.size // 2) * self._ground_nav.cell_size
