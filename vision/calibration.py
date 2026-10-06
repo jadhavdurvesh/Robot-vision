@@ -22,6 +22,13 @@ def load_intrinsics(path: str | Path, width: int, height: int) -> tuple[np.ndarr
         k = np.asarray(data["camera_matrix"], dtype=np.float64)
         if k.shape != (3, 3):
             raise ValueError("camera_matrix must be 3x3")
+        src_w = float(data.get("image_width", width))
+        src_h = float(data.get("image_height", height))
+        sx, sy = width / max(1.0, src_w), height / max(1.0, src_h)
+        k[0, 0] *= sx
+        k[0, 2] *= sx
+        k[1, 1] *= sy
+        k[1, 2] *= sy
         return k, True
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
         return default_intrinsics(width, height), False
