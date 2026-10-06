@@ -82,3 +82,9 @@ mapping:
   meters_per_cell: 0.05
   decay: 0.997
   update_interval: 3
+
+point_cloud:
+  enabled: true
+  max_points: 50000
+  sample_step: 12
+  max_depth: 6.0
