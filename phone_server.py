@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from planning.local_planner import LocalPlanner
+from planning.ground_navigation import GroundNavigator
 from vision.detector import ObjectDetector
 from vision.depth import MonocularDepth, DepthResult
 from vision.obstacle_map import build_obstacle_map
@@ -185,6 +186,14 @@ class VisionSession:
         self._trajectory_3d: list[np.ndarray] = []
         self._path_3d: np.ndarray | None = None
         self._scene3d = np.zeros((650, 900, 3), dtype=np.uint8)
+        nav_cfg = config.get("navigation", {})
+        self._ground_nav = GroundNavigator(
+            size=int(nav_cfg.get("size", 160)),
+            cell_size=float(nav_cfg.get("cell_size", 0.05)),
+            obstacle_radius=int(nav_cfg.get("obstacle_radius", 3)),
+        )
+        self._nav_grid = self._ground_nav.grid.copy()
+        self._nav_route = []
 
     def reset(self) -> None:
         with self.lock:
@@ -205,6 +214,9 @@ class VisionSession:
             self._trajectory_3d.clear()
             self._path_3d = None
             self._scene3d = np.zeros((650, 900, 3), dtype=np.uint8)
+            self._ground_nav.reset()
+            self._nav_grid = self._ground_nav.grid.copy()
+            self._nav_route = []
 
     def _estimate_depth_async(self, frame: np.ndarray) -> DepthResult:
         depth_frame = frame
@@ -319,6 +331,40 @@ class VisionSession:
 
             path = self.planner.plan(obstacle_map.free_mask)
 
+            # Map-based local navigation. The route is generated from the
+            # depth/detected obstacles rather than from image-space alone.
+            if self.map_enabled and self._depth_result is not None:
+                self._nav_grid, self._nav_route = self._ground_nav.update(
+                    self._depth_result.depth,
+                    detections,
+                    self.camera_matrix,
+                    self._odo_state.position,
+                    self._odo_state.rotation,
+                    metric=bool(self._depth_result.metric),
+                )
+
+                if self._nav_route:
+                    nh, nw = frame.shape[:2]
+                    nav_points = []
+                    for gx, gy in self._nav_route[::max(1, len(self._nav_route) // 8)]:
+                        x = (gx - self._ground_nav.size // 2) * self._ground_nav.cell_size
+                        z = (self._ground_nav.size - 8 - gy) * self._ground_nav.cell_size
+                        # Convert the ground-plane route back into image space
+                        # so the live camera window also follows the map route.
+                        if z > 0.1:
+                            u = int(self.camera_matrix[0, 2] + self.camera_matrix[0, 0] * x / z)
+                            v = int(self.camera_matrix[1, 2] + self.camera_matrix[1, 1] * 0.35 / z)
+                            nav_points.append((u, v))
+                    if len(nav_points) >= 2:
+                        path.points = nav_points
+                        path.target_x = nav_points[-1][0]
+                        delta = path.target_x - frame.shape[1] // 2
+                        path.direction = (
+                            "FORWARD" if abs(delta) < frame.shape[1] * 0.09
+                            else ("LEFT" if delta < 0 else "RIGHT")
+                        )
+                        path.clear = True
+
             if (
                 self.map_enabled
                 and self._pending_map_update
@@ -372,7 +418,15 @@ class VisionSession:
                     np.asarray(self._trajectory_3d, dtype=np.float32) - current
                     if self._trajectory_3d else None
                 )
-                path_view = self._path_3d - current if self._path_3d is not None else None
+                if self._nav_route:
+                    route3 = []
+                    for gx, gy in self._nav_route[::max(1, len(self._nav_route) // 20)]:
+                        x = (gx - self._ground_nav.size // 2) * self._ground_nav.cell_size
+                        z = (self._ground_nav.size - 8 - gy) * self._ground_nav.cell_size
+                        route3.append(np.array([x, 0.0, z], dtype=np.float32))
+                    self._path_3d = np.asarray(route3, dtype=np.float32)
+
+                path_view = self._path_3d if self._path_3d is not None else None
                 self._scene3d = render_3d_scene(
                     cloud_view,
                     trajectory_view,
