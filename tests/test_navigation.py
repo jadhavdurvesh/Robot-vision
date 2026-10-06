@@ -32,3 +32,23 @@ def test_fully_blocked_scene_stops():
     path = planner.plan(free)
     assert path.clear is False
     assert path.direction == "BLOCKED"
+
+
+def test_default_camera_intrinsics_are_valid():
+    from vision.calibration import default_intrinsics
+    k = default_intrinsics(1280, 720)
+    assert k.shape == (3, 3)
+    assert k[0, 0] > 0 and k[1, 1] > 0
+    assert k[2, 2] == 1
+
+
+def test_local_map_persists_trajectory_without_jitter():
+    import numpy as np
+    from vision.local_map import LocalOccupancyMap
+    m = LocalOccupancyMap(size=120, meters_per_cell=0.05, decay=0.997)
+    shape = (270, 480, 3)
+    depth = np.full((270, 480), 2.0, dtype=np.float32)
+    result1 = m.update(depth, [], np.array([0., 0., 0.]), shape, 0.38, metric_depth=True)
+    result2 = m.update(depth, [], np.array([0., 0., 0.]), shape, 0.38, metric_depth=True)
+    assert result2.trajectory_length == 0.0
+    assert result2.coverage >= result1.coverage * 0.9
