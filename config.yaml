@@ -94,3 +94,10 @@ navigation:
   size: 160
   cell_size: 0.05
   obstacle_radius: 3
+
+world_navigation:
+  enabled: true
+  size: 320
+  meters_per_cell: 0.05
+  decay: 0.995
+  max_range: 7.0
