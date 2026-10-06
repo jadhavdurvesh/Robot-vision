@@ -301,6 +301,8 @@ class VisionSession:
                     metric_depth=bool(self._depth_result and self._depth_result.metric),
                     path=path,
                     metric_scale=bool(self._odo_state.scale_known),
+                    camera_matrix=self.camera_matrix,
+                    camera_rotation=self._odo_state.rotation,
                 )
                 self._pending_map_update = False
             elapsed = time.perf_counter() - started
