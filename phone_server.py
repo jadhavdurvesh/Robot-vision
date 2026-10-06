@@ -600,6 +600,9 @@ def main():
     window = "Robot Vision - Phone Camera"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(window, 1280, 720)
+    scene_window = "Robot Vision - 3D Environment"
+    cv2.namedWindow(scene_window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(scene_window, 900, 650)
 
     try:
         while display.running:
@@ -623,6 +626,10 @@ def main():
                 display_frame[y:y + rh, x:x + rw] = resized
 
                 cv2.imshow(window, display_frame)
+
+                session = getattr(display, "session", None)
+                if session is not None and session._scene3d is not None:
+                    cv2.imshow(scene_window, session._scene3d)
 
             key = cv2.waitKey(10) & 0xFF
             if key == ord("r"):
