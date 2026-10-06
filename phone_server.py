@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import traceback
+import json
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -27,6 +28,8 @@ from vision.depth import MonocularDepth, DepthResult
 from vision.obstacle_map import build_obstacle_map
 from vision.odometry import VisualOdometry, OdometryState
 from vision.local_map import LocalOccupancyMap, LocalMap
+from vision.imu import IMUFusion
+from vision.calibration import load_intrinsics
 from visualization.renderer import draw_scene
 
 ROOT = Path(__file__).resolve().parent
@@ -145,12 +148,19 @@ class VisionSession:
         self.odo_enabled = bool(odo_cfg.get("enabled", True))
         self.odo_interval = max(1, int(odo_cfg.get("interval", 2)))
         self._odo_frame_count = 0
+        self.imu = IMUFusion()
+        self.camera_calibration_path = str(config.get("calibration", {}).get("path", "calibration/camera.json"))
+        self.camera_matrix, self.calibrated = load_intrinsics(
+            self.camera_calibration_path, 480, 480
+        )
         self._odometry = VisualOdometry(
             width=int(odo_cfg.get("input_width", 480)),
             max_features=int(odo_cfg.get("max_features", 700)),
             min_matches=int(odo_cfg.get("min_matches", 24)),
             min_inliers=int(odo_cfg.get("min_inliers", 12)),
         )
+        self._odometry.set_intrinsics(self.camera_matrix)
+
         map_cfg = config.get("mapping", {})
         self.map_enabled = bool(map_cfg.get("enabled", True))
         self.map_interval = max(1, int(map_cfg.get("update_interval", 3)))
@@ -257,6 +267,7 @@ class VisionSession:
                 self._odo_state = self._odometry.update(
                     frame, depth=depth_for_odo,
                     metric_depth=bool(self._depth_result and self._depth_result.metric),
+                    imu_delta=self.imu.consume_delta(),
                 )
 
             obstacle_map = build_obstacle_map(
@@ -423,6 +434,14 @@ async def websocket(request):
     try:
         async for message in ws:
             if message.type == web.WSMsgType.TEXT:
+                try:
+                    payload = json.loads(message.data)
+                    if payload.get("type") == "imu":
+                        self_imu = session.imu
+                        self_imu.update(payload.get("timestamp", time.time()), payload.get("quaternion", [1,0,0,0]), payload.get("rotationRate", [0,0,0]))
+                        continue
+                except (ValueError, TypeError, KeyError):
+                    pass
                 print(f"[PHONE] message: {message.data}", flush=True)
                 await ws.send_str("ACK")
             elif message.type == web.WSMsgType.BINARY:
