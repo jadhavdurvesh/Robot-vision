@@ -88,3 +88,9 @@ point_cloud:
   max_points: 50000
   sample_step: 12
   max_depth: 6.0
+
+navigation:
+  enabled: true
+  size: 160
+  cell_size: 0.05
+  obstacle_radius: 3
