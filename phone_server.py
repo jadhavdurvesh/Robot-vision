@@ -30,7 +30,9 @@ from vision.odometry import VisualOdometry, OdometryState
 from vision.local_map import LocalOccupancyMap, LocalMap
 from vision.imu import IMUFusion
 from vision.calibration import load_intrinsics
+from vision.point_cloud import PersistentPointCloud
 from visualization.renderer import draw_scene
+from visualization.scene3d import render_3d_scene
 
 ROOT = Path(__file__).resolve().parent
 PHONE_PAGE = ROOT / "phone_camera.html"
@@ -174,6 +176,16 @@ class VisionSession:
         self._local_map_result = None
         self._pending_map_update = False
 
+        cloud_cfg = config.get("point_cloud", {})
+        self._point_cloud = PersistentPointCloud(
+            max_points=int(cloud_cfg.get("max_points", 50000)),
+            sample_step=int(cloud_cfg.get("sample_step", 12)),
+            max_depth=float(cloud_cfg.get("max_depth", 6.0)),
+        )
+        self._trajectory_3d: list[np.ndarray] = []
+        self._path_3d: np.ndarray | None = None
+        self._scene3d = np.zeros((650, 900, 3), dtype=np.uint8)
+
     def reset(self) -> None:
         with self.lock:
             self.planner.reset()
@@ -189,6 +201,10 @@ class VisionSession:
             self._odo_frame_count = 0
             self._map_frame_count = 0
             self._pending_map_update = False
+            self._point_cloud.reset()
+            self._trajectory_3d.clear()
+            self._path_3d = None
+            self._scene3d = np.zeros((650, 900, 3), dtype=np.uint8)
 
     def _estimate_depth_async(self, frame: np.ndarray) -> DepthResult:
         depth_frame = frame
@@ -321,6 +337,41 @@ class VisionSession:
                     camera_rotation=self._odo_state.rotation,
                 )
                 self._pending_map_update = False
+            # Lightweight persistent 3D environment.
+            if self.map_enabled and self._depth_result is not None:
+                self._point_cloud.update(
+                    self._depth_result.depth,
+                    self.camera_matrix,
+                    self._odo_state.position,
+                    self._odo_state.rotation,
+                    metric=bool(self._depth_result.metric),
+                )
+                if (
+                    not self._trajectory_3d
+                    or np.linalg.norm(self._odo_state.position - self._trajectory_3d[-1]) > 0.025
+                ):
+                    self._trajectory_3d.append(self._odo_state.position.astype(np.float32).copy())
+                    if len(self._trajectory_3d) > 800:
+                        self._trajectory_3d = self._trajectory_3d[-800:]
+
+                if path.points:
+                    h, w = frame.shape[:2]
+                    route = []
+                    for px, py in path.points:
+                        z = 0.8 + max(0.0, (h - py) / max(1, h)) * 2.5
+                        x = (px - w * 0.5) / max(1.0, w) * z
+                        route.append(
+                            self._odo_state.position
+                            + self._odo_state.rotation @ np.array([x, 0.0, z], dtype=np.float64)
+                        )
+                    self._path_3d = np.asarray(route, dtype=np.float32)
+
+                self._scene3d = render_3d_scene(
+                    self._point_cloud.points,
+                    np.asarray(self._trajectory_3d, dtype=np.float32) if self._trajectory_3d else None,
+                    self._path_3d,
+                )
+
             elapsed = time.perf_counter() - started
             self.last_process_ms = elapsed * 1000.0
             now = time.perf_counter()
