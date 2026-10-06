@@ -336,7 +336,7 @@ class VisionSession:
             if self.map_enabled and self._depth_result is not None:
                 self._nav_grid, self._nav_route = self._ground_nav.update(
                     self._depth_result.depth,
-                    detections,
+                    [d for d in detections if d.class_name in self.obstacle_classes],
                     self.camera_matrix,
                     self._odo_state.position,
                     self._odo_state.rotation,
