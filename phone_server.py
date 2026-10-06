@@ -174,6 +174,22 @@ class VisionSession:
         self._local_map_result = None
         self._pending_map_update = False
 
+    def reset(self) -> None:
+        with self.lock:
+            self.planner.reset()
+            self._odometry.reset()
+            self._local_map.reset()
+            self._odo_state = self._odometry.last
+            self._local_map_result = None
+            self._previous_small = None
+            self._last_detections = []
+            self._frames_since_detection = 0
+            self._depth_result = None
+            self._depth_frame_count = 0
+            self._odo_frame_count = 0
+            self._map_frame_count = 0
+            self._pending_map_update = False
+
     def _estimate_depth_async(self, frame: np.ndarray) -> DepthResult:
         depth_frame = frame
         scale = min(1.0, self.depth_width / max(1, frame.shape[1]))
@@ -523,6 +539,7 @@ def main():
 
     # IMPORTANT: Windows OpenCV GUI must run on the main thread.
     display = OpenCVDisplay()
+    display.session = None
     server_thread = threading.Thread(
         target=run_server, args=(args, display), daemon=True
     )
@@ -556,6 +573,10 @@ def main():
                 cv2.imshow(window, display_frame)
 
             key = cv2.waitKey(10) & 0xFF
+            if key == ord("r"):
+                session = getattr(display, "session", None)
+                if session is not None:
+                    session.reset()
             if key == ord("q") or key == 27:
                 display.close()
                 break
