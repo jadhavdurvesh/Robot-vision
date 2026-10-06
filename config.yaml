@@ -80,5 +80,5 @@ mapping:
   enabled: true
   size: 320
   meters_per_cell: 0.05
-  decay: 0.985
+  decay: 0.997
   update_interval: 3
