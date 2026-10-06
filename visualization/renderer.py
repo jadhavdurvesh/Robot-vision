@@ -157,8 +157,9 @@ def draw_scene(
         cv2.rectangle(overlay, (mx - 4, my - 4), (width - 6, my + 194), (8, 12, 18), -1)
         output = cv2.addWeighted(overlay, 0.72, output, 0.28, 0)
         output[my:my + 190, mx:mx + 190] = map_img
-        _text(output, "LOCAL MAP", (mx + 6, my + 15), 0.40, (255, 255, 255), 1)
+_text(output, "LOCAL MAP", (mx + 6, my + 15), 0.40, (255, 255, 255), 1)
         _text(output, f"COV {local_map.coverage:.1%}", (mx + 6, my + 35), 0.36, (190, 220, 235), 1)
+        _text(output, "PERSISTENT", (mx + 96, my + 35), 0.33, (120, 235, 160), 1)
         _text(
             output,
             f"OBS {local_map.obstacle_count}  TRJ {local_map.trajectory_length:.2f} {'m' if local_map.metric_scale else 'rel'}",
