@@ -366,10 +366,17 @@ class VisionSession:
                         )
                     self._path_3d = np.asarray(route, dtype=np.float32)
 
+                current = self._odo_state.position.astype(np.float32)
+                cloud_view = self._point_cloud.points - current
+                trajectory_view = (
+                    np.asarray(self._trajectory_3d, dtype=np.float32) - current
+                    if self._trajectory_3d else None
+                )
+                path_view = self._path_3d - current if self._path_3d is not None else None
                 self._scene3d = render_3d_scene(
-                    self._point_cloud.points,
-                    np.asarray(self._trajectory_3d, dtype=np.float32) if self._trajectory_3d else None,
-                    self._path_3d,
+                    cloud_view,
+                    trajectory_view,
+                    path_view,
                 )
 
             elapsed = time.perf_counter() - started
