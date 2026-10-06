@@ -1,3 +1,6 @@
+calibration:
+  path: calibration/camera.json
+
 camera:
   width: 1280
   height: 720
