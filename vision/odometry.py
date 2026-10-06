@@ -16,6 +16,7 @@ class OdometryState:
     translation: np.ndarray
     rotation_deg: float
     position: np.ndarray
+    rotation: np.ndarray | None = None
     scale_known: bool = False
 
 
@@ -67,6 +68,7 @@ class VisualOdometry:
             translation=np.zeros(3),
             rotation_deg=0.0,
             position=self.position.copy(),
+                rotation=self.rotation.copy(),
         )
 
     def set_intrinsics(self, camera_matrix: np.ndarray, image_width: int | None = None, image_height: int | None = None) -> None:
@@ -96,6 +98,7 @@ class VisualOdometry:
             translation=np.zeros(3),
             rotation_deg=0.0,
             position=self.position.copy(),
+                rotation=self.rotation.copy(),
         )
 
     def update(self, frame: np.ndarray, depth: np.ndarray | None = None, metric_depth: bool = False, imu_delta: np.ndarray | None = None) -> OdometryState:
@@ -125,6 +128,7 @@ class VisualOdometry:
                 translation=np.zeros(3),
                 rotation_deg=0.0,
                 position=self.position.copy(),
+                rotation=self.rotation.copy(),
             )
             return self.last
 
@@ -139,6 +143,7 @@ class VisualOdometry:
                 translation=np.zeros(3),
                 rotation_deg=0.0,
                 position=self.position.copy(),
+                rotation=self.rotation.copy(),
             )
             return self.last
 
@@ -159,6 +164,7 @@ class VisualOdometry:
                 translation=np.zeros(3),
                 rotation_deg=0.0,
                 position=self.position.copy(),
+                rotation=self.rotation.copy(),
             )
             return self.last
 
@@ -283,6 +289,7 @@ class VisualOdometry:
             translation=translation,
             rotation_deg=rotation_deg,
             position=self.position.copy(),
+                rotation=self.rotation.copy(),
             scale_known=scale_known,
         )
         return self.last
