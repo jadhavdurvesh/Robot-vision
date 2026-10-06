@@ -156,3 +156,18 @@ Open that address on the PC or another device on the same Wi-Fi. The phone camer
 Phase 4 adds lightweight monocular visual odometry (ORB + Essential Matrix), metric indoor depth, and a bounded temporal local map. The system deliberately does not claim absolute camera-motion scale from monocular odometry alone. Depth is run periodically at reduced resolution to protect live FPS.
 
 The selected Depth Anything V2 checkpoint is the official Small indoor metric-depth model; its model card describes it as fine-tuned for indoor metric depth estimation and compatible with Transformers. citeturn0search0turn0search4
+
+
+## Phase 5 — IMU + camera calibration
+
+The phone page now sends camera frames plus device orientation/gyro samples to the local PC. IMU is used to stabilize rotation; translation remains vision/depth based because accelerometer-only translation drifts rapidly.
+
+Optional checkerboard calibration is supported. Capture at least 8 checkerboard views with the same phone camera/resolution used for the demo, then run:
+
+```powershell
+.\\.venv\\Scripts\\python.exe tools\\calibrate_camera.py calibration\\img01.jpg calibration\\img02.jpg calibration\\img03.jpg calibration\\img04.jpg calibration\\img05.jpg calibration\\img06.jpg calibration\\img07.jpg calibration\\img08.jpg
+```
+
+The resulting `calibration/camera.json` stays local and is loaded automatically. The camera photographs themselves are not saved by Robot Vision.
+
+If no calibration file exists, the system uses an approximate camera model.
