@@ -151,7 +151,7 @@ class VisionSession:
         self.imu = IMUFusion()
         self.camera_calibration_path = str(config.get("calibration", {}).get("path", "calibration/camera.json"))
         self.camera_matrix, self.calibrated = load_intrinsics(
-            self.camera_calibration_path, 480, 480
+            self.camera_calibration_path, 480, 270
         )
         self._odometry = VisualOdometry(
             width=int(odo_cfg.get("input_width", 480)),
@@ -159,7 +159,7 @@ class VisionSession:
             min_matches=int(odo_cfg.get("min_matches", 24)),
             min_inliers=int(odo_cfg.get("min_inliers", 12)),
         )
-        self._odometry.set_intrinsics(self.camera_matrix)
+        self._odometry.set_intrinsics(self.camera_matrix, image_width=480, image_height=270)
 
         map_cfg = config.get("mapping", {})
         self.map_enabled = bool(map_cfg.get("enabled", True))
