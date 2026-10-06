@@ -496,6 +496,7 @@ def run_server(args, display):
     app = web.Application(client_max_size=8 * 1024 * 1024)
     app["session"] = VisionSession(load_config(args.config))
     app["display"] = display
+    display.session = app["session"]
     app.router.add_get("/", index)
     app.router.add_get("/health", health)
     app.router.add_get("/ws", websocket)
