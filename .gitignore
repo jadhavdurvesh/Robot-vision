@@ -9,3 +9,10 @@ __pycache__/
 .DS_Store
 yolov*.pt
 runs/
+
+# Local calibration captures/results
+calibration/*.jpg
+calibration/*.jpeg
+calibration/*.png
+calibration/*.JPG
+calibration/*.JSON
