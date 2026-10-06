@@ -62,13 +62,16 @@ class LocalOccupancyMap:
         metric_depth: bool = False,
         path: PlannedPath | None = None,
         metric_scale: bool = False,
+        camera_matrix: np.ndarray | None = None,
+        camera_rotation: np.ndarray | None = None,
     ) -> LocalMap:
         self.grid *= self.decay
         self.traversal *= self.decay
 
         # Bounded relative trajectory. Monocular odometry has unknown scale.
         current = np.asarray(position, dtype=np.float64)
-        if not self.trajectory or np.linalg.norm(current - self.last_position) > 0.015:
+        motion_threshold = 0.025 if not metric_scale else 0.008
+        if not self.trajectory or np.linalg.norm(current - self.last_position) > motion_threshold:
             self.trajectory.append((float(current[0]), float(current[2])))
             if len(self.trajectory) > 500:
                 self.trajectory = self.trajectory[-500:]
@@ -80,59 +83,60 @@ class LocalOccupancyMap:
         h, w = frame_shape[:2]
         points: list[MapPoint] = []
 
-        # Approximate ground traversal evidence. This is deliberately local
-        # and qualitative because monocular scale is not yet calibrated.
-        if depth is not None:
-            for yy in np.linspace(int(h * roi_top_ratio), int(h * 0.94), 12).astype(int):
-                row = depth[min(h - 1, yy)]
-                if row.size == 0:
-                    continue
-                for xx in np.linspace(int(w * 0.18), int(w * 0.82), 17).astype(int):
-                    d = float(row[min(w - 1, xx)])
-                    # Metric indoor depth is distance-like; relative depth is
-                    # normalized. Traversal evidence remains deliberately weak.
-                    valid_depth = (
-                        0.25 < d < 6.0 if metric_depth
-                        else 0.15 < d < 0.85
-                    )
-                    if valid_depth:
-                        nx = (xx - w * 0.5) / max(1.0, w) * 2.2
-                        ny = (h - yy) / max(1.0, h) * 2.5
-                        wx = float(position[0] + nx)
-                        wy = float(position[2] + ny)
-                        cx, cy = self._world_to_cell(wx, wy)
-                        if 0 <= cx < self.size and 0 <= cy < self.size:
-                            self.traversal[cy, cx] += 0.035
+        # Project depth samples from camera coordinates into the persistent
+        # top-down map. With metric depth this is metric; otherwise it is
+        # deliberately kept as relative scale.
+        K = None if camera_matrix is None else np.asarray(camera_matrix, dtype=np.float64)
+        R = np.eye(3, dtype=np.float64) if camera_rotation is None else np.asarray(camera_rotation, dtype=np.float64)
+        fx = float(K[0, 0]) if K is not None else max(1.0, w)
+        fy = float(K[1, 1]) if K is not None else max(1.0, w)
+        cxi = float(K[0, 2]) if K is not None else w * 0.5
+        cyi = float(K[1, 2]) if K is not None else h * 0.5
 
-        # Project semantic obstacles into the local map using relative depth.
+        def camera_point(u: float, v: float, z: float) -> np.ndarray:
+            return np.array([(u - cxi) * z / fx, (v - cyi) * z / fy, z], dtype=np.float64)
+
         if depth is not None:
+            ys = np.linspace(int(h * roi_top_ratio), int(h * 0.94), 10).astype(int)
+            xs = np.linspace(int(w * 0.12), int(w * 0.88), 15).astype(int)
+            for yy in ys:
+                for xx in xs:
+                    z = float(depth[min(h - 1, yy), min(w - 1, xx)])
+                    valid = (0.25 < z < 8.0) if metric_depth else (0.08 < z < 1.0)
+                    if not valid or not np.isfinite(z):
+                        continue
+                    if not metric_depth:
+                        z = 0.45 + (1.0 - float(np.clip(z, 0, 1))) * 2.2
+                    pc = camera_point(xx, yy, z)
+                    pw = current + R @ pc
+                    mx, my = self._world_to_cell(float(pw[0]), float(pw[2]))
+                    if 0 <= mx < self.size and 0 <= my < self.size:
+                        self.traversal[my, mx] = min(1.0, self.traversal[my, mx] + 0.045)
+
             for det in detections:
-                cx_img = int((det.x1 + det.x2) * 0.5)
-                cy_img = int(det.y2)
-                if not (0 <= cx_img < w and 0 <= cy_img < h):
+                u = float((det.x1 + det.x2) * 0.5)
+                v = float(det.y2)
+                x0, x1 = max(0, int(det.x1)), min(w, int(det.x2 + 1))
+                y0, y1 = max(0, int(det.y1)), min(h, int(det.y2 + 1))
+                if x0 >= x1 or y0 >= y1:
                     continue
-                local_depth = float(
-                    np.median(
-                        depth[
-                            max(0, det.y1):min(h, det.y2 + 1),
-                            max(0, det.x1):min(w, det.x2 + 1),
-                        ]
-                    )
-                )
-                # Map image position + relative depth into a compact local
-                # coordinate. Absolute metres are intentionally not claimed.
-                lateral = (cx_img - w * 0.5) / max(1.0, w) * 2.0
-                forward = (1.0 - cy_img / max(1.0, h)) * 2.2
-                forward *= 0.65 + 0.7 * (1.0 - np.clip(local_depth, 0, 1))
-                wx = float(position[0] + lateral)
-                wy = float(position[2] + forward)
-                mx, my = self._world_to_cell(wx, wy)
-                radius = max(2, int((det.x2 - det.x1) / max(1, w) * 35))
+                patch = depth[y0:y1, x0:x1]
+                if patch.size == 0:
+                    continue
+                z = float(np.nanmedian(patch))
+                if not np.isfinite(z):
+                    continue
+                if metric_depth:
+                    z = float(np.clip(z, 0.3, 8.0))
+                else:
+                    z = 0.45 + (1.0 - float(np.clip(z, 0, 1))) * 2.2
+                pc = camera_point(u, v, z)
+                pw = current + R @ pc
+                mx, my = self._world_to_cell(float(pw[0]), float(pw[2]))
                 if 0 <= mx < self.size and 0 <= my < self.size:
+                    radius = max(3, int((det.x2 - det.x1) / max(1, w) * 42))
                     cv2.circle(self.grid, (mx, my), radius, 1.0, -1)
-                    points.append(
-                        MapPoint(wx, wy, float(det.confidence), det.class_name)
-                    )
+                    points.append(MapPoint(float(pw[0]), float(pw[2]), float(det.confidence), det.class_name))
 
         occupied = np.clip(self.grid, 0, 1)
         explored = np.clip(self.traversal, 0, 1)
