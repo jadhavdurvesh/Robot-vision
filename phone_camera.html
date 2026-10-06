@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Robot Vision Camera</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#070b10;color:#eef4f8;font-family:system-ui,sans-serif;display:flex;justify-content:center}main{width:min(100%,760px);padding:20px}h1{margin:0 0 6px;font-size:25px}p{color:#9eabb5}video{width:100%;max-height:78vh;border-radius:16px;background:#000;object-fit:contain;transform:none}button{width:100%;border:0;border-radius:12px;padding:15px;margin-top:12px;font-weight:700;font-size:17px}#start{background:#43e07b;color:#041008}#stop{background:#252d35;color:#fff}#status{margin-top:14px;padding:12px;border-radius:10px;background:#121920}</style></head><body><main><h1>Robot Vision</h1><p>Wireless phone camera session • The complete camera view is preserved. Landscape is recommended, but portrait also works.</p><video id="camera" autoplay playsinline muted></video><button id="start">START CAMERA</button><button id="stop" disabled>STOP SESSION</button><div id="status">Disconnected</div></main><script>
-const video=document.getElementById("camera"),start=document.getElementById("start"),stop=document.getElementById("stop"),status=document.getElementById("status");let stream=null,socket=null,timer=null,imuTimer=null,sending=false,canvas=document.createElement("canvas"),sentCount=0,ackCount=0,lastOrientation=null;
+const video=document.getElementById("camera"),start=document.getElementById("start"),stop=document.getElementById("stop"),status=document.getElementById("status");let stream=null,socket=null,timer=null,imuTimer=null,sending=false,canvas=document.createElement("canvas"),sentCount=0,ackCount=0,lastOrientation=null,lastRotationRate=[0,0,0];
 function setStatus(t){status.textContent=t}
 async function startSession(){
  start.disabled=true;
@@ -31,13 +31,15 @@ async function startSession(){
 function startIMU(){
  const send=()=>{
   if(!socket||socket.readyState!==WebSocket.OPEN||!lastOrientation)return;
-  socket.send(JSON.stringify({type:"imu",timestamp:Date.now()/1000,quaternion:lastOrientation,rotationRate:[0,0,0]}));
+  socket.send(JSON.stringify({type:"imu",timestamp:Date.now()/1000,quaternion:lastOrientation,rotationRate:lastRotationRate}));
  };
+ const onMotion=e=>{ const rr=e.rotationRate; if(rr) lastRotationRate=[rr.alpha||0,rr.beta||0,rr.gamma||0]; };
  const onOrientation=e=>{
   const a=(e.alpha||0)*Math.PI/180,b=(e.beta||0)*Math.PI/180,g=(e.gamma||0)*Math.PI/180;
   const cA=Math.cos(a/2),sA=Math.sin(a/2),cB=Math.cos(b/2),sB=Math.sin(b/2),cG=Math.cos(g/2),sG=Math.sin(g/2);
   lastOrientation=[cA*cB*cG+sA*sB*sG,cA*sB*cG+sA*cB*sG,sA*cB*sG-cA*sB*sG,sA*cB*cG-sA*sB*cG];
  };
+ window.addEventListener("devicemotion",onMotion,true);
  window.addEventListener("deviceorientationabsolute",onOrientation,true);
  window.addEventListener("deviceorientation",onOrientation,true);
  imuTimer=setInterval(send,50);
