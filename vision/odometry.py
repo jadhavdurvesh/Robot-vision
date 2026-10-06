@@ -69,14 +69,16 @@ class VisualOdometry:
             position=self.position.copy(),
         )
 
-    def set_intrinsics(self, camera_matrix: np.ndarray) -> None:
+    def set_intrinsics(self, camera_matrix: np.ndarray, image_width: int | None = None, image_height: int | None = None) -> None:
         k = np.asarray(camera_matrix, dtype=np.float64)
         if k.shape != (3, 3):
             raise ValueError("camera_matrix must be 3x3")
         self.fx = float(k[0, 0])
         self.fy = float(k[1, 1])
-        self.cx_ratio = float(k[0, 2]) / max(1.0, self.width)
-        self.cy_ratio = float(k[1, 2]) / max(1.0, self.width)
+        iw = float(image_width or self.width)
+        ih = float(image_height or max(1, round(self.width * 9 / 16)))
+        self.cx_ratio = float(k[0, 2]) / max(1.0, iw)
+        self.cy_ratio = float(k[1, 2]) / max(1.0, ih)
 
     def reset(self) -> None:
         self.prev_gray = None
