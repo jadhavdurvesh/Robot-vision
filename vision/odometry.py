@@ -69,6 +69,15 @@ class VisualOdometry:
             position=self.position.copy(),
         )
 
+    def set_intrinsics(self, camera_matrix: np.ndarray) -> None:
+        k = np.asarray(camera_matrix, dtype=np.float64)
+        if k.shape != (3, 3):
+            raise ValueError("camera_matrix must be 3x3")
+        self.fx = float(k[0, 0])
+        self.fy = float(k[1, 1])
+        self.cx_ratio = float(k[0, 2]) / max(1.0, self.width)
+        self.cy_ratio = float(k[1, 2]) / max(1.0, self.width)
+
     def reset(self) -> None:
         self.prev_gray = None
         self.prev_kp = None
@@ -87,7 +96,7 @@ class VisualOdometry:
             position=self.position.copy(),
         )
 
-    def update(self, frame: np.ndarray, depth: np.ndarray | None = None, metric_depth: bool = False) -> OdometryState:
+    def update(self, frame: np.ndarray, depth: np.ndarray | None = None, metric_depth: bool = False, imu_delta: np.ndarray | None = None) -> OdometryState:
         h, w = frame.shape[:2]
         scale = min(1.0, self.width / max(1, w))
         if scale < 1:
@@ -218,6 +227,17 @@ class VisualOdometry:
                             confidence = max(confidence, metric_inliers / max(1, len(obj)))
             except (cv2.error, ValueError, FloatingPointError):
                 metric_pose = None
+
+        # Fuse a short IMU rotation delta with the visual estimate. IMU is
+        # used only for rotation here; translation remains vision/depth based.
+        if imu_delta is not None and np.asarray(imu_delta).shape == (3, 3):
+            try:
+                visual_rvec, _ = cv2.Rodrigues(R)
+                imu_rvec, _ = cv2.Rodrigues(np.asarray(imu_delta, dtype=np.float64))
+                fused_rvec = 0.70 * visual_rvec.reshape(3) + 0.30 * imu_rvec.reshape(3)
+                R, _ = cv2.Rodrigues(fused_rvec.reshape(3, 1))
+            except cv2.error:
+                pass
 
         translation = t.reshape(3).astype(np.float64)
         rotation_deg = float(
