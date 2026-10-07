@@ -229,6 +229,40 @@ class VisionSession:
             self._world_nav.reset()
             self._world_route = []
 
+    def _fuse_detection_depth(self, detections, depth_result):
+        """Attach robust camera/world-space estimates to YOLO detections."""
+        if depth_result is None:
+            for det in detections:
+                det.distance = None; det.world_x = None; det.world_z = None
+                det.direction = None; det.depth_confidence = 0.0
+            return
+        depth = depth_result.depth
+        h, w = depth.shape[:2]
+        K = self.camera_matrix
+        fx, fy = float(K[0, 0]), float(K[1, 1])
+        cx, cy = float(K[0, 2]), float(K[1, 2])
+        R = np.asarray(self._odo_state.rotation, dtype=np.float64)
+        pos = np.asarray(self._odo_state.position, dtype=np.float64)
+        for det in detections:
+            x0, x1 = max(0, int(det.x1)), min(w, int(det.x2) + 1)
+            y0, y1 = max(0, int(det.y1)), min(h, int(det.y2) + 1)
+            if x0 >= x1 or y0 >= y1: continue
+            bx0 = x0 + int((x1-x0)*0.25); bx1 = x1 - int((x1-x0)*0.25)
+            by0 = y0 + int((y1-y0)*0.35); by1 = y1
+            patch = depth[by0:by1, bx0:bx1]
+            valid = patch[np.isfinite(patch)]
+            if valid.size < 8: continue
+            z = float(np.median(valid))
+            if depth_result.metric: z = float(np.clip(z, 0.25, 8.0))
+            else: z = 0.45 + (1.0-float(np.clip(z,0.0,1.0)))*2.2
+            u = (float(det.x1)+float(det.x2))*0.5; v = float(det.y2)
+            x = (u-cx)*z/max(1.0,fx); y = (v-cy)*z/max(1.0,fy)
+            world = pos + R @ np.array([x,y,z], dtype=np.float64)
+            det.distance=float(np.linalg.norm([x,y,z])); det.world_x=float(world[0]); det.world_z=float(world[2])
+            det.direction = 'CENTER' if abs(x)<z*0.12 else ('LEFT' if x<0 else 'RIGHT')
+            spread=float(np.std(valid))
+            det.depth_confidence=float(np.clip(min(1.0,valid.size/80.0)/(1.0+spread),0.0,1.0))
+
     def _estimate_depth_async(self, frame: np.ndarray) -> DepthResult:
         depth_frame = frame
         scale = min(1.0, self.depth_width / max(1, frame.shape[1]))
@@ -329,6 +363,7 @@ class VisionSession:
                 frame.shape, detections, self.obstacle_classes,
                 self.roi_top, self.padding, self._depth_result
             )
+            self._fuse_detection_depth(detections, self._depth_result)
 
             self._map_frame_count += 1
             if (
