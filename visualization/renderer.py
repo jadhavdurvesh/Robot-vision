@@ -28,6 +28,11 @@ def draw_scene(
     depth_result: DepthResult | None = None,
     odometry: OdometryState | None = None,
     local_map: LocalMap | None = None,
+    calibration_ok: bool = False,
+    imu_samples: int = 0,
+    imu_healthy: bool = False,
+    point_count: int = 0,
+    depth_range: tuple[float, float] | None = None,
 ) -> np.ndarray:
     output = frame.copy()
     height, width = output.shape[:2]
@@ -182,6 +187,32 @@ def draw_scene(
     _text(output, path.direction, (x1 + 9, y1 + 39), 0.62, state_color, 2)
     target_x, target_y = target
     _text(output, f"TARGET  X:{target_x} Y:{target_y}", (x1 + 9, y1 + 59), 0.37, (220, 225, 230), 1)
+
+    # --- Perception diagnostics panel ---
+    diag_w, diag_h = 255, 158
+    dx, dy = 8, height - diag_h - 28
+    overlay = output.copy()
+    cv2.rectangle(overlay, (dx, dy), (dx + diag_w, dy + diag_h), (8, 12, 18), -1)
+    output = cv2.addWeighted(overlay, 0.78, output, 0.22, 0)
+    _text(output, "PERCEPTION STATUS", (dx + 9, dy + 17), 0.42, (255, 255, 255), 1)
+
+    def status_row(label, ok, value, y):
+        _text(output, label, (dx + 9, y), 0.37, (170, 185, 195), 1)
+        marker = "OK" if ok else "--"
+        marker_color = (80, 235, 130) if ok else (100, 110, 120)
+        _text(output, marker, (dx + 82, y), 0.36, marker_color, 1)
+        _text(output, value, (dx + 112, y), 0.36, (220, 225, 230), 1)
+
+    status_row("CAMERA", True, "CONNECTED", dy + 38)
+    status_row("CALIBRATION", calibration_ok, "ACTIVE" if calibration_ok else "FALLBACK", dy + 58)
+    status_row("DEPTH", depth_result is not None, "ACTIVE" if depth_result is not None else "WAITING", dy + 78)
+    status_row("IMU", imu_healthy, f"{imu_samples} samples", dy + 98)
+    status_row("ODOMETRY", odometry is not None and odometry.tracking,
+               "TRACK" if odometry is not None and odometry.tracking else "SEARCH", dy + 118)
+    status_row("3D CLOUD", point_count > 0, f"{point_count:,} points", dy + 138)
+    if depth_range is not None:
+        _text(output, f"DEPTH {depth_range[0]:.2f} .. {depth_range[1]:.2f}",
+              (dx + 9, dy + 153), 0.32, (180, 205, 220), 1)
 
     # --- Tiny bottom hint ---
     _text(
