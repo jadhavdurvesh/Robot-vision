@@ -71,6 +71,10 @@ def draw_scene(
         cv2.rectangle(output, (x1, y1), (x2, y2), (0, 215, 255), 2)
 
         label = f"{det.class_name} {det.confidence:.0%}"
+        if det.distance is not None:
+            label += f"  {det.distance:.1f}m"
+            if det.direction:
+                label += f" {det.direction}"
         if det.track_id is not None:
             label += f" #{det.track_id}"
 
@@ -143,7 +147,8 @@ def draw_scene(
 
         for i, det in enumerate(detections[:8]):
             tid = f"#{det.track_id}" if det.track_id is not None else "-"
-            text = f"{i + 1}. {det.class_name}  {det.confidence:.0%}  {tid}"
+            spatial = f"{det.distance:.1f}m {det.direction}" if det.distance is not None and det.direction else "depth --"
+            text = f"{i + 1}. {det.class_name}  {det.confidence:.0%}  {spatial}  {tid}"
             _text(
                 output,
                 text,
