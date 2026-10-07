@@ -375,7 +375,7 @@ class VisionSession:
                 # current route can also be projected into the map.
                 self._pending_map_update = True
 
-            path = self.planner.plan(obstacle_map.free_mask)
+            path = self.planner.plan(obstacle_map.free_mask, obstacle_map.unknown_mask)
 
             # Persistent world navigation. Previously mapped obstacles remain
             # available to the planner even after leaving the current view.
