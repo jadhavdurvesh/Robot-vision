@@ -40,7 +40,7 @@ class LocalPlanner:
         self._stable_direction = "FORWARD"
         self._direction_votes = {"LEFT": 0, "RIGHT": 0, "FORWARD": 0}
 
-    def plan(self, free_mask: np.ndarray) -> PlannedPath:
+    def plan(self, free_mask: np.ndarray, unknown_mask: np.ndarray | None = None) -> PlannedPath:
         height, width = free_mask.shape
         y_bottom = min(height - 1, int(height * self.bottom_ratio))
         y_top = max(0, int(height * self.top_ratio))
@@ -76,6 +76,10 @@ class LocalPlanner:
 
             corridor = region[:, x1:x2]
             ratio = float(np.count_nonzero(corridor)) / float(corridor.size)
+            unknown_ratio = 0.0
+            if unknown_mask is not None:
+                uregion = unknown_mask[y_top:y_bottom + 1, x1:x2]
+                unknown_ratio = float(np.count_nonzero(uregion)) / float(max(1, uregion.size))
 
             # Estimate the narrowest horizontal free width through several
             # lookahead depths. This discourages paths that are technically
@@ -96,9 +100,10 @@ class LocalPlanner:
             center_penalty = abs(x - center) / max(1, center)
 
             score = (
-                0.52 * ratio
+                0.50 * ratio
                 + 0.38 * clearance
                 - 0.14 * center_penalty
+                - 0.18 * unknown_ratio
             )
 
             if score > best_score:
