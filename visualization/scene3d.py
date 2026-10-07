@@ -26,6 +26,10 @@ def _project(points: np.ndarray, yaw: float = 0.35, pitch: float = -0.55,
 
 def render_3d_scene(points: np.ndarray, trajectory: np.ndarray | None = None,
                     path: np.ndarray | None = None,
+                    depth_ready: bool = False,
+                    calibrated: bool = False,
+                    odometry_tracking: bool = False,
+                    imu_healthy: bool = False,
                     size: tuple[int, int] = (900, 650)) -> np.ndarray:
     """Lightweight OpenCV 3D-style point-cloud view.
 
@@ -73,6 +77,31 @@ def render_3d_scene(points: np.ndarray, trajectory: np.ndarray | None = None,
     cv2.putText(canvas, f"POINTS {0 if points is None else len(points)}",
                 (width - 180, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.48,
                 (120, 210, 255), 1, cv2.LINE_AA)
+
+    # Runtime diagnostics make an empty cloud actionable.
+    rows = [
+        ("DEPTH", depth_ready),
+        ("CALIBRATION", calibrated),
+        ("ODOMETRY", odometry_tracking),
+        ("IMU", imu_healthy),
+    ]
+    y = 62
+    for label, ok in rows:
+        cv2.putText(canvas, f"{label}: {'OK' if ok else 'WAIT'}",
+                    (14, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                    (90, 225, 140) if ok else (150, 155, 165), 1, cv2.LINE_AA)
+        y += 20
+
+    if not depth_ready:
+        cv2.putText(canvas, "Waiting for depth inference...",
+                    (width // 2 - 145, height // 2 - 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    (180, 190, 205), 1, cv2.LINE_AA)
+    elif points is None or len(points) == 0:
+        cv2.putText(canvas, "Depth ready - no valid 3D points yet",
+                    (width // 2 - 175, height // 2 - 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52,
+                    (180, 190, 205), 1, cv2.LINE_AA)
 
     cv2.putText(canvas, "Blue: depth cloud   Yellow: trajectory   Green: planned path",
                 (12, height - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.43,
