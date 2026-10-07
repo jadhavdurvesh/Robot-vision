@@ -17,6 +17,11 @@ class Detection:
     y1: int
     x2: int
     y2: int
+    distance: float | None = None
+    world_x: float | None = None
+    world_z: float | None = None
+    direction: str | None = None
+    depth_confidence: float = 0.0
 
 
 class ObjectDetector:
