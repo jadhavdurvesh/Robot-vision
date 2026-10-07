@@ -13,6 +13,8 @@ from vision.depth import DepthResult
 class ObstacleMap:
     mask: np.ndarray
     free_mask: np.ndarray
+    traversable_mask: np.ndarray | None = None
+    unknown_mask: np.ndarray | None = None
 
 
 def build_obstacle_map(
@@ -75,6 +77,36 @@ def build_obstacle_map(
             cv2.rectangle(obstacle_mask, (x1, y1), (x2, y2), 255, -1)
 
     obstacle_mask = cv2.bitwise_and(obstacle_mask, planning_region)
-    free_mask = cv2.bitwise_and(cv2.bitwise_not(obstacle_mask), planning_region)
 
-    return ObstacleMap(mask=obstacle_mask, free_mask=free_mask)
+    # Depth-aware free-space perception. Pixels with a valid depth estimate
+    # are considered traversable only in the lower image region; detections
+    # remain hard obstacles. Unknown pixels are deliberately not declared
+    # free, which prevents the planner from driving through unseen space.
+    traversable = np.zeros_like(obstacle_mask)
+    unknown = planning_region.copy()
+    if depth_result is not None:
+        d = depth_result.depth
+        valid = np.isfinite(d)
+        if depth_result.metric:
+            valid &= (d > 0.25) & (d < 6.0)
+        else:
+            valid &= (d > 0.05) & (d < 1.0)
+        traversable[valid & (planning_region > 0)] = 255
+        unknown[(traversable > 0) | (obstacle_mask > 0)] = 0
+        # Smooth isolated depth holes without filling large obstacles.
+        traversable = cv2.morphologyEx(
+            traversable, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)
+        )
+    else:
+        traversable = planning_region.copy()
+        unknown[:] = 0
+
+    traversable[obstacle_mask > 0] = 0
+    free_mask = traversable
+
+    return ObstacleMap(
+        mask=obstacle_mask,
+        free_mask=free_mask,
+        traversable_mask=traversable,
+        unknown_mask=unknown,
+    )
