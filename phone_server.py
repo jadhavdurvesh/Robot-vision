@@ -459,6 +459,10 @@ class VisionSession:
                     cloud_view,
                     trajectory_view,
                     path_view,
+                    depth_ready=True,
+                    calibrated=self.calibrated,
+                    odometry_tracking=bool(self._odo_state.tracking),
+                    imu_healthy=self.imu.healthy(),
                 )
 
             elapsed = time.perf_counter() - started
@@ -469,10 +473,22 @@ class VisionSession:
                 self.fps = instant if self.fps == 0 else self.fps * 0.8 + instant * 0.2
             self._last_process_time = now
             self.frame_count += 1
+            depth_range = None
+            if self._depth_result is not None:
+                valid_depth = self._depth_result.depth[np.isfinite(self._depth_result.depth)]
+                if valid_depth.size:
+                    lo, hi = np.percentile(valid_depth, [5, 95])
+                    depth_range = (float(lo), float(hi))
+
             rendered = draw_scene(
                 frame, detections, obstacle_map, path,
                 self.fps, self.last_process_ms, self._depth_result,
-                self._odo_state, self._local_map_result
+                self._odo_state, self._local_map_result,
+                calibration_ok=self.calibrated,
+                imu_samples=self.imu.samples,
+                imu_healthy=self.imu.healthy(),
+                point_count=len(self._point_cloud.points),
+                depth_range=depth_range,
             )
             ok, encoded = cv2.imencode(".jpg", rendered, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
